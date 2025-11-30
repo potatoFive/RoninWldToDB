@@ -422,7 +422,7 @@ func parseOBJ(fileName string) {
 						bits := BitValues(bitvector, 30)
 						objAffFlags = getAffFlags(bits)
 					}
-					objAffFlags = strings.TrimSpace(line)
+					objAffFlags = strings.TrimSpace(objAffFlags)
 					freeFormParse = ""
 					continue
 				}
@@ -440,7 +440,7 @@ func parseOBJ(fileName string) {
 						bits := BitValues(bitvector, 7)
 						objAffFlags2 = getAFF2Flags(bits)
 					}
-					objAffFlags2 = strings.TrimSpace(line)
+					objAffFlags2 = strings.TrimSpace(objAffFlags2)
 					freeFormParse = ""
 					continue
 				}
@@ -568,6 +568,85 @@ func parseOBJ(fileName string) {
 			damageMin = strconv.FormatFloat(damageMinInt, 'f', -1, 64)
 			damageMax = strconv.FormatFloat(damageMaxInt, 'f', -1, 64)
 			damageAve = strconv.FormatFloat(damageAveInt, 'f', -1, 64)
+		}
+		//Add max possible bonus from RANDOM flags to all AFF modifiers
+		switch Affect0 {
+		case "DAMROLL", "HITROLL", "HP_REGEN", "MANA_REGEN", "ARMOR", "MANA", "HIT", "MOVE":
+			matchedRandom, _ := regexp.MatchString(`(?:RANDOM\s|RANDOM$|RANDOM_2)`, extraFlags2)
+			if matchedRandom {
+				tmp, err := strconv.Atoi(AffectModifier0)
+				if err == nil {
+					switch Affect0 {
+					case "DAMROLL", "HITROLL": //Add +2 for random damage
+						tmp = tmp + 2
+						AffectModifier0 = strconv.Itoa(tmp)
+					case "HP_REGEN": //Add +30 for HP REGEN
+						tmp = tmp + 30
+						AffectModifier0 = strconv.Itoa(tmp)
+					case "MANA_REGEN": //Add +6 for MANA REGEN
+						tmp = tmp + 6
+						AffectModifier0 = strconv.Itoa(tmp)
+					case "ARMOR": //Subtract 10 for ARMOR
+						tmp = tmp - 10
+						AffectModifier0 = strconv.Itoa(tmp)
+					case "MANA", "HIT", "MOVE": //Add 100 for MANA HP MANA
+						tmp = tmp + 100
+						AffectModifier0 = strconv.Itoa(tmp)
+					}
+				}
+			}
+		}
+		switch Affect1 {
+		case "DAMROLL", "HITROLL", "HP_REGEN", "MANA_REGEN", "ARMOR", "MANA", "HIT", "MOVE":
+			matchedRandom, _ := regexp.MatchString(`(?:RANDOM\s|RANDOM$|RANDOM_2)`, extraFlags2)
+			if matchedRandom {
+				tmp, err := strconv.Atoi(AffectModifier1)
+				if err == nil {
+					switch Affect1 {
+					case "DAMROLL", "HITROLL": //Add +2 for random damage
+						tmp = tmp + 2
+						AffectModifier1 = strconv.Itoa(tmp)
+					case "HP_REGEN": //Add +30 for HP REGEN
+						tmp = tmp + 30
+						AffectModifier1 = strconv.Itoa(tmp)
+					case "MANA_REGEN": //Add +6 for MANA REGEN
+						tmp = tmp + 6
+						AffectModifier1 = strconv.Itoa(tmp)
+					case "ARMOR": //Subtract 10 for ARMOR
+						tmp = tmp - 10
+						AffectModifier1 = strconv.Itoa(tmp)
+					case "MANA", "HIT", "MOVE": //Add 100 for MANA HP MANA
+						tmp = tmp + 100
+						AffectModifier1 = strconv.Itoa(tmp)
+					}
+				}
+			}
+		}
+		switch Affect2 {
+		case "DAMROLL", "HITROLL", "HP_REGEN", "MANA_REGEN", "ARMOR", "MANA", "HIT", "MOVE":
+			matchedRandom, _ := regexp.MatchString(`(?:RANDOM\s|RANDOM$|RANDOM_2)`, extraFlags2)
+			if matchedRandom {
+				tmp, err := strconv.Atoi(AffectModifier2)
+				if err == nil {
+					switch Affect2 {
+					case "DAMROLL", "HITROLL": //Add +2 for random damage
+						tmp = tmp + 2
+						AffectModifier2 = strconv.Itoa(tmp)
+					case "HP_REGEN": //Add +30 for HP REGEN
+						tmp = tmp + 30
+						AffectModifier2 = strconv.Itoa(tmp)
+					case "MANA_REGEN": //Add +6 for MANA REGEN
+						tmp = tmp + 6
+						AffectModifier2 = strconv.Itoa(tmp)
+					case "ARMOR": //Subtract 10 for ARMOR
+						tmp = tmp - 10
+						AffectModifier2 = strconv.Itoa(tmp)
+					case "MANA", "HIT", "MOVE": //Add 100 for MANA HP MANA
+						tmp = tmp + 100
+						AffectModifier2 = strconv.Itoa(tmp)
+					}
+				}
+			}
 		}
 		//Make sure item number is actually a number and confirm its not 0 EOF
 		if _, err := strconv.Atoi(itemNumber); err == nil {
@@ -1131,7 +1210,7 @@ func getLiquidType(liquidType string) string {
 func getWeaponSpecial(weaponSpecial string) string {
 	switch weaponSpecial {
 	case "0":
-		return "None"
+		return ""
 	case "1":
 		return "Blind"
 	case "2":
@@ -1333,7 +1412,7 @@ func getWeaponSpecial(weaponSpecial string) string {
 	case "100":
 		return "Slay Statues"
 	default:
-		return "UNKNOWN"
+		return "UNKNOWN: " + weaponSpecial
 	}
 }
 func getWeaponType(weaponType string) string {
@@ -1369,7 +1448,7 @@ func getWeaponType(weaponType string) string {
 	case "14":
 		return "Slice"
 	default:
-		return "UNKNOWN"
+		return "UNKNOWN: " + weaponType
 	}
 }
 func getApplyType(ApplyTypeCode string) string {
@@ -1483,7 +1562,7 @@ func getApplyType(ApplyTypeCode string) string {
 	case "53":
 		return "MANA_REGEN"
 	default:
-		return "UNKNOWN"
+		return "UNKNOWN: " + ApplyTypeCode
 	}
 }
 func getAFF2Flags(bits []int) string {
