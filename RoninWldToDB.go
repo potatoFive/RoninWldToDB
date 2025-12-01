@@ -13,6 +13,13 @@ import (
 	"strings"
 )
 
+var zoneName string = ""
+
+// 1 == PRINT PARSED ITEMS TO CONSOLE
+var printZone int = 1
+var printObjects int = 0
+var printMobiles int = 0
+
 const bitsPerInt32 = 32
 
 type BitVector struct {
@@ -29,6 +36,156 @@ func main() {
 		parseZON(v)
 	}
 }
+func listFiles(dir string) []string {
+	// Get a list of all .zon files in the specified directory
+	root := os.DirFS(dir)
+	mdFiles, err := fs.Glob(root, "*.zon")
+	if err != nil {
+		log.Fatal(err)
+	}
+	var files []string
+	for _, v := range mdFiles {
+		files = append(files, path.Join(dir, v))
+	}
+	return files
+}
+
+// PARSE ZONE FILE AND ALL ITS PARTS: .ZON, .WLD, .MOB, .OBJ =============
+// DB.C, Line 1579, int read_zone(FILE *fl)
+func parseZON(fileName string) {
+	// Read the entire file into memory
+	data, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		log.Fatalf("failed to read file: %s", err)
+	}
+	//Init Variables before parsing each object
+	var parseCount int = 1
+
+	zoneName = ""
+	var zonNumber string = ""
+	var lastRoomNum string = ""
+	var respawnTimer string = ""
+	var resetMode string = ""
+
+	// Split the object into individual lines
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		//Parse all lines and store data in relivant variables
+
+		//Get Zone Number
+		if parseCount == 1 {
+			parseCount++
+			zonNumber = strings.TrimSpace(strings.ReplaceAll(line, "#", ""))
+			continue
+		}
+		//Get Zone Name
+		if parseCount == 2 {
+			zoneName = zoneName + " " + line
+
+			if strings.Contains(line, "~") {
+				parseCount++
+				zoneName = strings.TrimSpace(strings.ReplaceAll(line, "~", ""))
+				continue
+			}
+		}
+		//Get Highest room number, reset timer, reset mode
+		if parseCount == 3 {
+			parseCount++
+			//Line aways has 3 space delimited values
+			flags := strings.Fields(line)
+			if len(flags) >= 3 {
+				lastRoomNum = strings.TrimSpace(flags[0])
+				respawnTimer = strings.TrimSpace(flags[1])
+				resetMode = getResetMode(strings.TrimSpace(flags[2]))
+			}
+			continue
+		}
+		if parseCount == 4 {
+
+		}
+	}
+
+	//Make sure item number is actually a number
+	if _, err := strconv.Atoi(zonNumber); err == nil {
+		//Item confirmed valid
+		if printZone == 1 {
+			fmt.Println("ZoneNumber: " + zonNumber)
+			fmt.Println("ZoneName: " + zoneName)
+			fmt.Println("respawnTimer: " + respawnTimer)
+			fmt.Println("resetMode: " + resetMode)
+			fmt.Println("lastRoomNum: " + lastRoomNum)
+
+		}
+	}
+
+	//Parse each file type
+	fileName = strings.TrimRight(fileName, "zon")
+	//parseWLD(fileName + "wld")
+	//fileName = strings.TrimRight(fileName, "wld")
+	parseOBJ(fileName + "obj")
+	fileName = strings.TrimRight(fileName, "obj")
+	parseMOB(fileName + "mob")
+}
+
+// PARSE WORLD FILES ===========================================
+// DB.C, Line 765, void read_rooms(FILE *fl)
+func parseWLD(fileName string) {
+	// Read the entire file into memory
+	data, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		log.Fatalf("failed to read file: %s", err)
+	}
+	// Split the file content into lines
+	lines := strings.Split(string(data), "\n")
+	// Print each line
+	for _, line := range lines {
+		fmt.Println(line)
+	}
+}
+
+// PARSE MOBILE FILES ===========================================
+func parseMOB(fileName string) {
+	// Read the entire file into memory
+	data, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		log.Fatalf("failed to read file: %s", err)
+	}
+	// Split the file content into individual objects
+	objects := strings.Split(string(data), "#")
+	for _, object := range objects {
+		//Init Variables before parsing each object
+		var parseCount int = 1
+
+		var mobNumber string = ""
+
+		// Split the object into individual lines
+		lines := strings.Split(string(object), "\n")
+		for _, line := range lines {
+			//Parse all lines and store data in relivant variables
+
+			//Get Mobile Number
+			if parseCount == 1 {
+				parseCount++
+				mobNumber = strings.TrimSpace(line)
+				continue
+			}
+		}
+		//Make sure item number is actually a number and confirm its not 0 EOF
+		if _, err := strconv.Atoi(mobNumber); err == nil {
+			if mobNumber != "0" {
+				//Item confirmed valid
+				if printMobiles == 1 {
+					fmt.Println("Zone: " + zoneName)
+					fmt.Println("MobileNumber: " + mobNumber)
+
+				}
+
+			}
+		}
+	}
+}
+
+// PARSE OBJECT FILES ===========================================
 func parseOBJ(fileName string) {
 	// Read the entire file into memory
 	data, err := ioutil.ReadFile(fileName)
@@ -37,7 +194,6 @@ func parseOBJ(fileName string) {
 	}
 	// Split the file content into individual objects
 	objects := strings.Split(string(data), "#")
-	// Print each line
 	for _, object := range objects {
 		//Init Variables before parsing each object
 		var parseCount int = 1
@@ -660,78 +816,81 @@ func parseOBJ(fileName string) {
 				extraFlags = extraFlags + " " + extraFlags2
 				extraFlags = strings.TrimSpace(extraFlags)
 
-				fmt.Println("Item Number: " + itemNumber)
-				fmt.Println("Keywords: " + keywords)
-				fmt.Println("ShortDesc: " + shortDesc)
-				fmt.Println("LongDesc: " + longDesc)
-				//fmt.Println("ActionDesc: " + actionDesc)
-				fmt.Println("ItemType: " + itemType)
-				fmt.Println("WearFlags: " + wearFlags)
-				fmt.Println("ExtraFlags: " + extraFlags)
-				fmt.Println("objAffFlags: " + objAffFlags)
-				fmt.Println("Affect0: " + Affect0 + " " + AffectModifier0)
-				fmt.Println("Affect1: " + Affect1 + " " + AffectModifier1)
-				fmt.Println("Affect2: " + Affect2 + " " + AffectModifier2)
-				fmt.Println("Value0: " + value0)
-				fmt.Println("Value1: " + value1)
-				fmt.Println("Value2: " + value2)
-				fmt.Println("Value3: " + value3)
-				fmt.Println("LightColor: " + lightColor)
-				fmt.Println("LightType: " + lightType)
-				fmt.Println("LightHours: " + lightHours)
-				fmt.Println("RecipeCreates: " + recipeCreates)
-				fmt.Println("RecipeRequires1: " + recipeRequires1)
-				fmt.Println("RecipeRequires2: " + recipeRequires2)
-				fmt.Println("RecipeRequires3: " + recipeRequires3)
-				fmt.Println("aqOrderRequires1: " + aqOrderRequires1)
-				fmt.Println("aqOrderRequires2: " + aqOrderRequires2)
-				fmt.Println("aqOrderRequires3: " + aqOrderRequires3)
-				fmt.Println("aqOrderRequires4: " + aqOrderRequires4)
-				fmt.Println("maxContains: " + maxContains)
-				fmt.Println("currentContains: " + currentContains)
-				fmt.Println("liquidType: " + liquidType)
-				fmt.Println("foodSatiation: " + foodSatiation)
-				fmt.Println("poisoned: " + poisoned)
-				fmt.Println("lockType: " + lockType)
-				fmt.Println("assignedKey: " + assignedKey)
-				fmt.Println("keyType: " + keyType)
-				fmt.Println("picksCurrent: " + picksCurrent)
-				fmt.Println("picksMax: " + picksMax)
-				fmt.Println("affAC: " + affAC)
-				fmt.Println("itemSpell: " + spell)
-				fmt.Println("SpellLevel: " + spellLevel)
-				fmt.Println("ChargesMax: " + chargesMax)
-				fmt.Println("ChargesCurrent: " + chargesCurrent)
-				fmt.Println("WeaponSpecial: " + weaponSpecial)
-				fmt.Println("WeaponType: " + weaponType)
-				fmt.Println("DiceNumber: " + diceNumber)
-				fmt.Println("DiceSize: " + diceSize)
-				fmt.Println("damageMin: " + damageMin)
-				fmt.Println("damageMax: " + damageMax)
-				fmt.Println("damageAve: " + damageAve)
-				fmt.Println("GunLicense: " + gunLicense)
-				fmt.Println("BulletsLeft: " + bulletsLeft)
-				fmt.Println("GunNumber: " + gunNumber)
-				fmt.Println("Weight: " + weight)
-				fmt.Println("Cost: " + cost)
-				fmt.Println("Rent: " + rent)
-				fmt.Println("treasureCoins: " + treasureCoins)
-				fmt.Println("subclassPointValue: " + subclassPointValue)
-				fmt.Println("LoadRate: " + loadrate)
-				fmt.Println("boardReadLvl: " + boardReadLvl)
-				fmt.Println("boardWriteLvl: " + boardWriteLvl)
-				fmt.Println("boardRemoveLvl: " + boardRemoveLvl)
-				if materialFlags != "0" {
-					fmt.Println("MaterialFlags: " + materialFlags)
+				if printObjects == 1 {
+					fmt.Println("Zone: " + zoneName)
+					fmt.Println("Item Number: " + itemNumber)
+					fmt.Println("Keywords: " + keywords)
+					fmt.Println("ShortDesc: " + shortDesc)
+					fmt.Println("LongDesc: " + longDesc)
+					//fmt.Println("ActionDesc: " + actionDesc)
+					fmt.Println("ItemType: " + itemType)
+					fmt.Println("WearFlags: " + wearFlags)
+					fmt.Println("ExtraFlags: " + extraFlags)
+					fmt.Println("objAffFlags: " + objAffFlags)
+					fmt.Println("Affect0: " + Affect0 + " " + AffectModifier0)
+					fmt.Println("Affect1: " + Affect1 + " " + AffectModifier1)
+					fmt.Println("Affect2: " + Affect2 + " " + AffectModifier2)
+					fmt.Println("Value0: " + value0)
+					fmt.Println("Value1: " + value1)
+					fmt.Println("Value2: " + value2)
+					fmt.Println("Value3: " + value3)
+					fmt.Println("LightColor: " + lightColor)
+					fmt.Println("LightType: " + lightType)
+					fmt.Println("LightHours: " + lightHours)
+					fmt.Println("RecipeCreates: " + recipeCreates)
+					fmt.Println("RecipeRequires1: " + recipeRequires1)
+					fmt.Println("RecipeRequires2: " + recipeRequires2)
+					fmt.Println("RecipeRequires3: " + recipeRequires3)
+					fmt.Println("aqOrderRequires1: " + aqOrderRequires1)
+					fmt.Println("aqOrderRequires2: " + aqOrderRequires2)
+					fmt.Println("aqOrderRequires3: " + aqOrderRequires3)
+					fmt.Println("aqOrderRequires4: " + aqOrderRequires4)
+					fmt.Println("maxContains: " + maxContains)
+					fmt.Println("currentContains: " + currentContains)
+					fmt.Println("liquidType: " + liquidType)
+					fmt.Println("foodSatiation: " + foodSatiation)
+					fmt.Println("poisoned: " + poisoned)
+					fmt.Println("lockType: " + lockType)
+					fmt.Println("assignedKey: " + assignedKey)
+					fmt.Println("keyType: " + keyType)
+					fmt.Println("picksCurrent: " + picksCurrent)
+					fmt.Println("picksMax: " + picksMax)
+					fmt.Println("affAC: " + affAC)
+					fmt.Println("itemSpell: " + spell)
+					fmt.Println("SpellLevel: " + spellLevel)
+					fmt.Println("ChargesMax: " + chargesMax)
+					fmt.Println("ChargesCurrent: " + chargesCurrent)
+					fmt.Println("WeaponSpecial: " + weaponSpecial)
+					fmt.Println("WeaponType: " + weaponType)
+					fmt.Println("DiceNumber: " + diceNumber)
+					fmt.Println("DiceSize: " + diceSize)
+					fmt.Println("damageMin: " + damageMin)
+					fmt.Println("damageMax: " + damageMax)
+					fmt.Println("damageAve: " + damageAve)
+					fmt.Println("GunLicense: " + gunLicense)
+					fmt.Println("BulletsLeft: " + bulletsLeft)
+					fmt.Println("GunNumber: " + gunNumber)
+					fmt.Println("Weight: " + weight)
+					fmt.Println("Cost: " + cost)
+					fmt.Println("Rent: " + rent)
+					fmt.Println("treasureCoins: " + treasureCoins)
+					fmt.Println("subclassPointValue: " + subclassPointValue)
+					fmt.Println("LoadRate: " + loadrate)
+					fmt.Println("boardReadLvl: " + boardReadLvl)
+					fmt.Println("boardWriteLvl: " + boardWriteLvl)
+					fmt.Println("boardRemoveLvl: " + boardRemoveLvl)
+					if materialFlags != "0" {
+						fmt.Println("MaterialFlags: " + materialFlags)
+					}
+					fmt.Println("ObjTimer: " + objTimer)
+					fmt.Println("-----------------------------------------------------")
 				}
-				fmt.Println("ObjTimer: " + objTimer)
-				fmt.Println("-----------------------------------------------------")
 				//Write data to a CSV file =========================================================
 				filename := "obj.csv"
 
 				// Header row
 				header := []string{
-					"itemNumber", "keywords", "shortDesc", "longDesc", "itemType", "wearFlags", "extraFlags", "objAffFlags",
+					"zone", "itemNumber", "keywords", "shortDesc", "longDesc", "itemType", "wearFlags", "extraFlags", "objAffFlags",
 					"Affect0", "AffectModifier0", "Affect1", "AffectModifier1", "Affect2", "AffectModifier2",
 					"value0", "value1", "value2", "value3",
 					"lightColor", "lightType", "lightHours",
@@ -773,7 +932,7 @@ func parseOBJ(fileName string) {
 				defer writer.Flush()
 				// Record row (convert all variables to strings)
 				record := []string{
-					itemNumber, keywords, shortDesc, longDesc, itemType, wearFlags, extraFlags, objAffFlags,
+					zoneName, itemNumber, keywords, shortDesc, longDesc, itemType, wearFlags, extraFlags, objAffFlags,
 					Affect0, AffectModifier0, Affect1, AffectModifier1, Affect2, AffectModifier2,
 					value0, value1, value2, value3,
 					lightColor, lightType, lightHours,
@@ -795,6 +954,24 @@ func parseOBJ(fileName string) {
 				}
 			}
 		}
+	}
+}
+func getResetMode(mode string) string {
+	switch mode {
+	case "0":
+		return "Never reset"
+	case "1":
+		return "Reset when empty"
+	case "2":
+		return "Reset on timer"
+	case "3":
+		return "Reset blocked"
+	case "4":
+		return "Reset locked"
+	case "5":
+		return "Doors only"
+	default:
+		return "UNKNOWN: " + mode
 	}
 }
 func getSpell(spellNum string) string {
@@ -2055,62 +2232,4 @@ func getItemType(typeFlag string) string {
 	default:
 		return "UNKNOWN"
 	}
-}
-func parseWLD(fileName string) {
-	// Read the entire file into memory
-	data, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		log.Fatalf("failed to read file: %s", err)
-	}
-	// Split the file content into lines
-	lines := strings.Split(string(data), "\n")
-	// Print each line
-	for _, line := range lines {
-		fmt.Println(line)
-	}
-}
-func parseMOB(fileName string) {
-	// Read the entire file into memory
-	data, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		log.Fatalf("failed to read file: %s", err)
-	}
-	// Split the file content into lines
-	lines := strings.Split(string(data), "\n")
-	// Print each line
-	for _, line := range lines {
-		fmt.Println(line)
-	}
-}
-func parseZON(fileName string) {
-	// Read the entire file into memory
-	//data, err := ioutil.ReadFile(fileName)
-	//if err != nil {
-	//	log.Fatalf("failed to read file: %s", err)
-	//}
-	// Split the file content into lines
-	//lines := strings.Split(string(data), "\n")
-	// Print each line
-	//for _, line := range lines {
-	//	fmt.Println(line)
-	//}
-	fileName = strings.TrimRight(fileName, "zon")
-	//parseWLD(fileName + "wld")
-	//fileName = strings.TrimRight(fileName, "wld")
-	parseOBJ(fileName + "obj")
-	//fileName = strings.TrimRight(fileName, "obj")
-	//parseMOB(fileName + "mob")
-}
-func listFiles(dir string) []string {
-	// Get a list of all .zon files in the specified directory
-	root := os.DirFS(dir)
-	mdFiles, err := fs.Glob(root, "*.zon")
-	if err != nil {
-		log.Fatal(err)
-	}
-	var files []string
-	for _, v := range mdFiles {
-		files = append(files, path.Join(dir, v))
-	}
-	return files
 }
