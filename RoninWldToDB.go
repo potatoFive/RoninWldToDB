@@ -14,6 +14,7 @@ import (
 )
 
 var zoneName string = ""
+var zoneNumber string = ""
 
 // 1 == PRINT PARSED ITEMS TO CONSOLE
 var printZone int = 1
@@ -62,10 +63,25 @@ func parseZON(fileName string) {
 	var parseCount int = 1
 
 	zoneName = ""
-	var zonNumber string = ""
+	zoneNumber = ""
 	var lastRoomNum string = ""
 	var respawnTimer string = ""
 	var resetMode string = ""
+	var zonCreationDate string = ""
+	var zonUpdateDate string = ""
+	var zonAuthor string = ""
+	var spawnMobileID string = ""
+	var spawnMobileCount string = ""
+	var spawnMobileRoomID string = ""
+	var spawnMobileType string = ""
+	var spawnItemID string = ""
+	var spawnItemLocationID string = ""
+	var spawnItemType string = ""
+	var spawnDoorID string = ""
+	var spawnDoorState string = ""
+	var spawnMobileList [][]string
+	var spawnItemList [][]string
+	var spawnDoorList [][]string
 
 	// Split the object into individual lines
 	lines := strings.Split(string(data), "\n")
@@ -75,7 +91,7 @@ func parseZON(fileName string) {
 		//Get Zone Number
 		if parseCount == 1 {
 			parseCount++
-			zonNumber = strings.TrimSpace(strings.ReplaceAll(line, "#", ""))
+			zoneNumber = strings.TrimSpace(strings.ReplaceAll(line, "#", ""))
 			continue
 		}
 		//Get Zone Name
@@ -101,19 +117,164 @@ func parseZON(fileName string) {
 			continue
 		}
 		if parseCount == 4 {
+			//Freeform Parsing section. Look for first letter on line and parse accordingly
+			//X ?, create date, revampDate, Author
+			if strings.HasPrefix(line, "X ") {
+				//X 0 17Jan2002 10Jul2021 NightInfinity
+				flags := strings.Fields(line)
+				if len(flags) >= 5 {
+					zonCreationDate = strings.TrimSpace(flags[2])
+					zonUpdateDate = strings.TrimSpace(flags[3])
+					zonAuthor = strings.TrimSpace(flags[4])
+				}
+			}
+			//Need to parse E F G O D lines
+			//'M': /* read a mobile */ db.c line 2623
+			if strings.HasPrefix(line, "M ") {
+				//M 0 27713 12 27769
+				// Mobile# SpawnCount, Room
+				flags := strings.Fields(line)
+				if len(flags) >= 5 {
+					spawnMobileID = strings.TrimSpace(flags[2])
+					spawnMobileCount = strings.TrimSpace(flags[3])
+					spawnMobileRoomID = strings.TrimSpace(flags[4])
+					spawnMobileType = "normal"
+					spawnMobileList = append(spawnMobileList, []string{spawnMobileID, spawnMobileCount, spawnMobileRoomID, spawnMobileType})
+				}
+			}
+			//'F': /* follow a mobile */
+			//MobileID, SpawnCount, RoomID
+			if strings.HasPrefix(line, "F ") {
+				flags := strings.Fields(line)
+				if len(flags) >= 5 {
+					spawnMobileID = strings.TrimSpace(flags[2])
+					spawnMobileCount = strings.TrimSpace(flags[3])
+					spawnMobileRoomID = strings.TrimSpace(flags[4])
+					spawnMobileType = "follow"
+					spawnMobileList = append(spawnMobileList, []string{spawnMobileID, spawnMobileCount, spawnMobileRoomID, spawnMobileType})
+				}
+			}
+			//'R': /* add mount for M */
+			//MobileID, SpawnCount, RoomID
+			if strings.HasPrefix(line, "R ") {
+				flags := strings.Fields(line)
+				if len(flags) >= 5 {
+					spawnMobileID = strings.TrimSpace(flags[2])
+					spawnMobileCount = strings.TrimSpace(flags[3])
+					spawnMobileRoomID = strings.TrimSpace(flags[4])
+					spawnMobileType = "mount"
+					spawnMobileList = append(spawnMobileList, []string{spawnMobileID, spawnMobileCount, spawnMobileRoomID, spawnMobileType})
+				}
+			}
+			//'O': /* read an object */
+			//Item#, ?, RoomID
+			if strings.HasPrefix(line, "O ") {
+				flags := strings.Fields(line)
+				if len(flags) >= 5 {
+					spawnItemID = strings.TrimSpace(flags[2])
+					spawnItemLocationID = strings.TrimSpace(flags[4])
+					spawnItemType = "inRoom"
+					spawnItemList = append(spawnItemList, []string{spawnItemID, spawnItemLocationID, spawnItemType})
+				}
+			}
+			//'P': /* object to object */
+			if strings.HasPrefix(line, "P ") {
+				flags := strings.Fields(line)
+				if len(flags) >= 5 {
+					spawnItemID = strings.TrimSpace(flags[2])
+					spawnItemLocationID = strings.TrimSpace(flags[4])
+					spawnItemType = "inObject"
+					spawnItemList = append(spawnItemList, []string{spawnItemID, spawnItemLocationID, spawnItemType})
+				}
+			}
+			//case 'T': /* take an object */
+			if strings.HasPrefix(line, "T ") {
+				flags := strings.Fields(line)
+				if len(flags) >= 5 {
+					spawnItemID = strings.TrimSpace(flags[2])
+					spawnItemLocationID = strings.TrimSpace(flags[4])
+					spawnItemType = "takeObject"
+					spawnItemList = append(spawnItemList, []string{spawnItemID, spawnItemLocationID, spawnItemType})
+				}
+			}
+			//'G': /* obj_to_char */
+			//G 1 27742 0 0
+			if strings.HasPrefix(line, "G ") {
+				flags := strings.Fields(line)
+				if len(flags) >= 5 {
+					spawnItemID = strings.TrimSpace(flags[2])
+					spawnItemType = "ObjectToMob"
+					spawnItemList = append(spawnItemList, []string{spawnItemID, "", spawnItemType})
+				}
+			}
+			//'E': /* object to equipment list */ Line 2813
+			//E 1 27723 0 17
+			if strings.HasPrefix(line, "E ") {
+				flags := strings.Fields(line)
+				if len(flags) >= 5 {
+					spawnItemID = strings.TrimSpace(flags[2])
+					spawnItemType = "ObjectToMobEQ"
+					spawnItemList = append(spawnItemList, []string{spawnItemID, "", spawnItemType})
+				}
+			}
+			//case 'D': /* set state of door */
+			if strings.HasPrefix(line, "D ") {
+				flags := strings.Fields(line)
+				if len(flags) >= 5 {
+					spawnDoorID = strings.TrimSpace(flags[2])
+					switch strings.TrimSpace(flags[4]) {
+					case "0":
+						spawnDoorState = "Open Unlocked"
+					case "1":
+						spawnDoorState = "Closed Unlocked"
+					case "2":
+						spawnDoorState = "Closed Locked"
+					default:
+						spawnDoorState = "invalid state " + strings.TrimSpace(flags[4])
+					}
+				}
+				spawnDoorList = append(spawnDoorList, []string{spawnDoorID, spawnDoorState})
+			}
 
 		}
 	}
-
 	//Make sure item number is actually a number
-	if _, err := strconv.Atoi(zonNumber); err == nil {
+	if _, err := strconv.Atoi(zoneNumber); err == nil {
 		//Item confirmed valid
 		if printZone == 1 {
-			fmt.Println("ZoneNumber: " + zonNumber)
+			fmt.Println("ZoneNumber: " + zoneNumber)
 			fmt.Println("ZoneName: " + zoneName)
+			fmt.Println("zonCreationDate: " + zonCreationDate)
+			fmt.Println("zonUpdateDate: " + zonUpdateDate)
+			fmt.Println("zonAuthor: " + zonAuthor)
 			fmt.Println("respawnTimer: " + respawnTimer)
 			fmt.Println("resetMode: " + resetMode)
 			fmt.Println("lastRoomNum: " + lastRoomNum)
+
+			//fmt.Println("spawnMobileID: " + spawnMobileID)
+			//fmt.Println("spawnMobileCount: " + spawnMobileCount)
+			//fmt.Println("spawnMobileRoomID: " + spawnMobileRoomID)
+			//fmt.Println("spawnMobileType: " + spawnMobileType)
+			for _, r := range spawnMobileList {
+				fmt.Println("spawnMobileID: " + r[0])
+				fmt.Println("spawnMobileCount: " + r[1])
+				fmt.Println("spawnMobileRoomID: " + r[2])
+				fmt.Println("spawnMobileType: " + r[3])
+			}
+			//fmt.Println("spawnItemID: " + spawnItemID)
+			//fmt.Println("spawnItemLocationID: " + spawnItemLocationID)
+			//fmt.Println("spawnItemType: " + spawnItemType)
+			for _, r := range spawnItemList {
+				fmt.Println("spawnItemID: " + r[0])
+				fmt.Println("spawnItemLocationID: " + r[1])
+				fmt.Println("spawnItemType: " + r[2])
+			}
+			//fmt.Println("spawnDoorID: " + spawnDoorID)
+			//fmt.Println("spawnDoorState: " + spawnDoorState)
+			for _, r := range spawnDoorList {
+				fmt.Println("spawnDoorID: " + r[0])
+				fmt.Println("spawnDoorState: " + r[1])
+			}
 
 		}
 	}
@@ -818,6 +979,7 @@ func parseOBJ(fileName string) {
 
 				if printObjects == 1 {
 					fmt.Println("Zone: " + zoneName)
+					fmt.Println("ZoneID: " + zoneNumber)
 					fmt.Println("Item Number: " + itemNumber)
 					fmt.Println("Keywords: " + keywords)
 					fmt.Println("ShortDesc: " + shortDesc)
@@ -890,7 +1052,7 @@ func parseOBJ(fileName string) {
 
 				// Header row
 				header := []string{
-					"zone", "itemNumber", "keywords", "shortDesc", "longDesc", "itemType", "wearFlags", "extraFlags", "objAffFlags",
+					"zone", "zoneNumber", "itemNumber", "keywords", "shortDesc", "longDesc", "itemType", "wearFlags", "extraFlags", "objAffFlags",
 					"Affect0", "AffectModifier0", "Affect1", "AffectModifier1", "Affect2", "AffectModifier2",
 					"value0", "value1", "value2", "value3",
 					"lightColor", "lightType", "lightHours",
@@ -932,7 +1094,7 @@ func parseOBJ(fileName string) {
 				defer writer.Flush()
 				// Record row (convert all variables to strings)
 				record := []string{
-					zoneName, itemNumber, keywords, shortDesc, longDesc, itemType, wearFlags, extraFlags, objAffFlags,
+					zoneName, zoneNumber, itemNumber, keywords, shortDesc, longDesc, itemType, wearFlags, extraFlags, objAffFlags,
 					Affect0, AffectModifier0, Affect1, AffectModifier1, Affect2, AffectModifier2,
 					value0, value1, value2, value3,
 					lightColor, lightType, lightHours,
