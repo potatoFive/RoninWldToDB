@@ -70,27 +70,26 @@ func parseZON(fileName string) {
 	var zonCreationDate string = ""
 	var zonUpdateDate string = ""
 	var zonAuthor string = ""
-	var spawnMobileID string = ""
-	var spawnMobileCount string = ""
-	var spawnMobileRoomID string = ""
-	var spawnMobileType string = ""
-	var spawnItemID string = ""
-	var spawnItemLocationID string = ""
-	var spawnItemType string = ""
-	var spawnDoorID string = ""
-	var spawnDoorState string = ""
-	var spawnMobileList [][]string
-	var spawnItemList [][]string
-	var spawnDoorList [][]string
-
 	// Split the object into individual lines
 	lines := strings.Split(string(data), "\n")
 	for _, line := range lines {
 		//Parse all lines and store data in relivant variables
+		var spawnMobileID string = ""
+		var spawnMobileCount string = ""
+		var spawnMobileRoomID string = ""
+		var spawnMobileType string = ""
+		var spawnItemID string = ""
+		var spawnItemLocationID string = ""
+		var spawnItemType string = ""
+		var spawnDoorID string = ""
+		var spawnDoorState string = ""
+
+		var validData int = 0
 
 		//Get Zone Number
 		if parseCount == 1 {
 			parseCount++
+			validData = 1
 			zoneNumber = strings.TrimSpace(strings.ReplaceAll(line, "#", ""))
 			continue
 		}
@@ -99,6 +98,7 @@ func parseZON(fileName string) {
 			zoneName = zoneName + " " + line
 
 			if strings.Contains(line, "~") {
+				validData = 1
 				parseCount++
 				zoneName = strings.TrimSpace(strings.ReplaceAll(line, "~", ""))
 				continue
@@ -110,6 +110,7 @@ func parseZON(fileName string) {
 			//Line aways has 3 space delimited values
 			flags := strings.Fields(line)
 			if len(flags) >= 3 {
+				validData = 1
 				lastRoomNum = strings.TrimSpace(flags[0])
 				respawnTimer = strings.TrimSpace(flags[1])
 				resetMode = getResetMode(strings.TrimSpace(flags[2]))
@@ -123,6 +124,7 @@ func parseZON(fileName string) {
 				//X 0 17Jan2002 10Jul2021 NightInfinity
 				flags := strings.Fields(line)
 				if len(flags) >= 5 {
+					validData = 1
 					zonCreationDate = strings.TrimSpace(flags[2])
 					zonUpdateDate = strings.TrimSpace(flags[3])
 					zonAuthor = strings.TrimSpace(flags[4])
@@ -135,11 +137,11 @@ func parseZON(fileName string) {
 				// Mobile# SpawnCount, Room
 				flags := strings.Fields(line)
 				if len(flags) >= 5 {
+					validData = 1
 					spawnMobileID = strings.TrimSpace(flags[2])
 					spawnMobileCount = strings.TrimSpace(flags[3])
 					spawnMobileRoomID = strings.TrimSpace(flags[4])
 					spawnMobileType = "normal"
-					spawnMobileList = append(spawnMobileList, []string{spawnMobileID, spawnMobileCount, spawnMobileRoomID, spawnMobileType})
 				}
 			}
 			//'F': /* follow a mobile */
@@ -147,11 +149,11 @@ func parseZON(fileName string) {
 			if strings.HasPrefix(line, "F ") {
 				flags := strings.Fields(line)
 				if len(flags) >= 5 {
+					validData = 1
 					spawnMobileID = strings.TrimSpace(flags[2])
 					spawnMobileCount = strings.TrimSpace(flags[3])
 					spawnMobileRoomID = strings.TrimSpace(flags[4])
 					spawnMobileType = "follow"
-					spawnMobileList = append(spawnMobileList, []string{spawnMobileID, spawnMobileCount, spawnMobileRoomID, spawnMobileType})
 				}
 			}
 			//'R': /* add mount for M */
@@ -159,11 +161,11 @@ func parseZON(fileName string) {
 			if strings.HasPrefix(line, "R ") {
 				flags := strings.Fields(line)
 				if len(flags) >= 5 {
+					validData = 1
 					spawnMobileID = strings.TrimSpace(flags[2])
 					spawnMobileCount = strings.TrimSpace(flags[3])
 					spawnMobileRoomID = strings.TrimSpace(flags[4])
 					spawnMobileType = "mount"
-					spawnMobileList = append(spawnMobileList, []string{spawnMobileID, spawnMobileCount, spawnMobileRoomID, spawnMobileType})
 				}
 			}
 			//'O': /* read an object */
@@ -171,56 +173,57 @@ func parseZON(fileName string) {
 			if strings.HasPrefix(line, "O ") {
 				flags := strings.Fields(line)
 				if len(flags) >= 5 {
+					validData = 1
 					spawnItemID = strings.TrimSpace(flags[2])
 					spawnItemLocationID = strings.TrimSpace(flags[4])
 					spawnItemType = "inRoom"
-					spawnItemList = append(spawnItemList, []string{spawnItemID, spawnItemLocationID, spawnItemType})
 				}
 			}
 			//'P': /* object to object */
 			if strings.HasPrefix(line, "P ") {
 				flags := strings.Fields(line)
 				if len(flags) >= 5 {
+					validData = 1
 					spawnItemID = strings.TrimSpace(flags[2])
 					spawnItemLocationID = strings.TrimSpace(flags[4])
 					spawnItemType = "inObject"
-					spawnItemList = append(spawnItemList, []string{spawnItemID, spawnItemLocationID, spawnItemType})
 				}
 			}
 			//case 'T': /* take an object */
 			if strings.HasPrefix(line, "T ") {
 				flags := strings.Fields(line)
 				if len(flags) >= 5 {
+					validData = 1
 					spawnItemID = strings.TrimSpace(flags[2])
 					spawnItemLocationID = strings.TrimSpace(flags[4])
 					spawnItemType = "takeObject"
-					spawnItemList = append(spawnItemList, []string{spawnItemID, spawnItemLocationID, spawnItemType})
 				}
 			}
 			//'G': /* obj_to_char */
 			//G 1 27742 0 0
 			if strings.HasPrefix(line, "G ") {
 				flags := strings.Fields(line)
-				if len(flags) >= 5 {
+				if len(flags) >= 3 {
+					validData = 1
 					spawnItemID = strings.TrimSpace(flags[2])
 					spawnItemType = "ObjectToMob"
-					spawnItemList = append(spawnItemList, []string{spawnItemID, "", spawnItemType})
 				}
 			}
 			//'E': /* object to equipment list */ Line 2813
 			//E 1 27723 0 17
 			if strings.HasPrefix(line, "E ") {
 				flags := strings.Fields(line)
-				if len(flags) >= 5 {
+				if len(flags) >= 3 {
+					validData = 1
 					spawnItemID = strings.TrimSpace(flags[2])
 					spawnItemType = "ObjectToMobEQ"
-					spawnItemList = append(spawnItemList, []string{spawnItemID, "", spawnItemType})
 				}
 			}
 			//case 'D': /* set state of door */
 			if strings.HasPrefix(line, "D ") {
 				flags := strings.Fields(line)
 				if len(flags) >= 5 {
+					validData = 1
 					spawnDoorID = strings.TrimSpace(flags[2])
 					switch strings.TrimSpace(flags[4]) {
 					case "0":
@@ -233,52 +236,105 @@ func parseZON(fileName string) {
 						spawnDoorState = "invalid state " + strings.TrimSpace(flags[4])
 					}
 				}
-				spawnDoorList = append(spawnDoorList, []string{spawnDoorID, spawnDoorState})
+			}
+		}
+		//Make sure data of some type was captured
+		if validData == 1 {
+			validData = 1
+			//Item confirmed valid
+			if printZone == 1 {
+				fmt.Println("ZoneNumber: " + zoneNumber)
+				fmt.Println("ZoneName: " + zoneName)
+				fmt.Println("zonCreationDate: " + zonCreationDate)
+				fmt.Println("zonUpdateDate: " + zonUpdateDate)
+				fmt.Println("zonAuthor: " + zonAuthor)
+				fmt.Println("respawnTimer: " + respawnTimer)
+				fmt.Println("resetMode: " + resetMode)
+				fmt.Println("lastRoomNum: " + lastRoomNum)
+				fmt.Println("spawnMobileID: " + spawnMobileID)
+				fmt.Println("spawnMobileCount: " + spawnMobileCount)
+				fmt.Println("spawnMobileRoomID: " + spawnMobileRoomID)
+				fmt.Println("spawnMobileType: " + spawnMobileType)
+				fmt.Println("spawnItemID: " + spawnItemID)
+				fmt.Println("spawnItemLocationID: " + spawnItemLocationID)
+				fmt.Println("spawnItemType: " + spawnItemType)
+				fmt.Println("spawnDoorID: " + spawnDoorID)
+				fmt.Println("spawnDoorState: " + spawnDoorState)
+			}
+			//Write data to file for debugging and move to DB long term
+			filename := "zon.csv"
+
+			// Header row
+			header := []string{
+				"ZoneNumber",
+				"ZoneName",
+				"zonCreationDate",
+				"zonUpdateDate",
+				"zonAuthor",
+				"respawnTimer",
+				"resetMode",
+				"lastRoomNum",
+				"spawnMobileID",
+				"spawnMobileCount",
+				"spawnMobileRoomID",
+				"spawnMobileType",
+				"spawnItemID",
+				"spawnItemLocationID",
+				"spawnItemType",
+				"spawnDoorID",
+				"spawnDoorState",
 			}
 
+			// Check if file exists
+			if _, err := os.Stat(filename); os.IsNotExist(err) {
+				// File does not exist, create it and write header
+				file, err := os.Create(filename)
+				if err != nil {
+					log.Fatal(err)
+				}
+				writer := csv.NewWriter(file)
+				if err := writer.Write(header); err != nil {
+					log.Fatal(err)
+				}
+				writer.Flush()
+				file.Close()
+			}
+
+			// Now open the file in append mode
+			file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0644)
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer file.Close()
+			writer := csv.NewWriter(file)
+			defer writer.Flush()
+			// Record row (convert all variables to strings)
+			record := []string{
+				zoneNumber,
+				zoneName,
+				zonCreationDate,
+				zonUpdateDate,
+				zonAuthor,
+				respawnTimer,
+				resetMode,
+				lastRoomNum,
+				spawnMobileID,
+				spawnMobileCount,
+				spawnMobileRoomID,
+				spawnMobileType,
+				spawnItemID,
+				spawnItemLocationID,
+				spawnItemType,
+				spawnDoorID,
+				spawnDoorState,
+			}
+
+			// Write record
+			if err := writer.Write(record); err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
-	//Make sure item number is actually a number
-	if _, err := strconv.Atoi(zoneNumber); err == nil {
-		//Item confirmed valid
-		if printZone == 1 {
-			fmt.Println("ZoneNumber: " + zoneNumber)
-			fmt.Println("ZoneName: " + zoneName)
-			fmt.Println("zonCreationDate: " + zonCreationDate)
-			fmt.Println("zonUpdateDate: " + zonUpdateDate)
-			fmt.Println("zonAuthor: " + zonAuthor)
-			fmt.Println("respawnTimer: " + respawnTimer)
-			fmt.Println("resetMode: " + resetMode)
-			fmt.Println("lastRoomNum: " + lastRoomNum)
-
-			//fmt.Println("spawnMobileID: " + spawnMobileID)
-			//fmt.Println("spawnMobileCount: " + spawnMobileCount)
-			//fmt.Println("spawnMobileRoomID: " + spawnMobileRoomID)
-			//fmt.Println("spawnMobileType: " + spawnMobileType)
-			for _, r := range spawnMobileList {
-				fmt.Println("spawnMobileID: " + r[0])
-				fmt.Println("spawnMobileCount: " + r[1])
-				fmt.Println("spawnMobileRoomID: " + r[2])
-				fmt.Println("spawnMobileType: " + r[3])
-			}
-			//fmt.Println("spawnItemID: " + spawnItemID)
-			//fmt.Println("spawnItemLocationID: " + spawnItemLocationID)
-			//fmt.Println("spawnItemType: " + spawnItemType)
-			for _, r := range spawnItemList {
-				fmt.Println("spawnItemID: " + r[0])
-				fmt.Println("spawnItemLocationID: " + r[1])
-				fmt.Println("spawnItemType: " + r[2])
-			}
-			//fmt.Println("spawnDoorID: " + spawnDoorID)
-			//fmt.Println("spawnDoorState: " + spawnDoorState)
-			for _, r := range spawnDoorList {
-				fmt.Println("spawnDoorID: " + r[0])
-				fmt.Println("spawnDoorState: " + r[1])
-			}
-
-		}
-	}
-
 	//Parse each file type
 	fileName = strings.TrimRight(fileName, "zon")
 	//parseWLD(fileName + "wld")
