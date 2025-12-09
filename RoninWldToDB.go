@@ -17,9 +17,9 @@ var zoneName string = ""
 var zoneNumber string = ""
 
 // 1 == PRINT PARSED ITEMS TO CONSOLE
-var printZone int = 1
+var printZone int = 0
 var printObjects int = 0
-var printMobiles int = 0
+var printMobiles int = 1
 
 const bitsPerInt32 = 32
 
@@ -32,9 +32,18 @@ type BitVector struct {
 func main() {
 	//Hard coded path to Ronin world folder
 	path := "../ronin/lib/world"
+	var fileName string = ""
+
 	files := listFiles(path)
 	for _, v := range files {
+		//Parse each file type
 		parseZON(v)
+		fileName = strings.TrimRight(v, "zon")
+		//parseWLD(fileName + "wld")
+		//fileName = strings.TrimRight(fileName, "wld")
+		parseOBJ(fileName + "obj")
+		fileName = strings.TrimRight(fileName, "obj")
+		parseMOB(fileName + "mob")
 	}
 }
 func listFiles(dir string) []string {
@@ -299,7 +308,6 @@ func parseZON(fileName string) {
 				writer.Flush()
 				file.Close()
 			}
-
 			// Now open the file in append mode
 			file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0644)
 			if err != nil {
@@ -335,13 +343,6 @@ func parseZON(fileName string) {
 			}
 		}
 	}
-	//Parse each file type
-	fileName = strings.TrimRight(fileName, "zon")
-	//parseWLD(fileName + "wld")
-	//fileName = strings.TrimRight(fileName, "wld")
-	parseOBJ(fileName + "obj")
-	fileName = strings.TrimRight(fileName, "obj")
-	parseMOB(fileName + "mob")
 }
 
 // PARSE WORLD FILES ===========================================
@@ -374,11 +375,54 @@ func parseMOB(fileName string) {
 		var parseCount int = 1
 
 		var mobNumber string = ""
+		var mobKeywords string = ""
+		var mobName string = ""
+		var mobShortDesc string = ""
+		var mobLongDesc string = ""
+		var actionFlags string = ""
+		var affectedByFlags string = ""
+		var mobAlignment string = ""
+		var mobLetter string = ""
+		var mobLevel string = ""
+		var mobHitroll string = ""
+		var mobArmor string = ""
+
+		var mobHPDieNumber float64 = 0
+		var mobHPDieSize float64 = 0
+		var mobHPBaseNumber float64 = 0
+		var mobHPMinValue float64 = 0
+		var mobHPMaxValue float64 = 0
+		var mobHPAverage float64 = 0
+		var mobHPAffective float64 = 0
+
+		var mobDamDieNumber float64 = 0
+		var mobDamDieSize float64 = 0
+		var mobDamBaseNumber float64 = 0
+		var mobDamMinValue float64 = 0
+		var mobDamMaxValue float64 = 0
+		var mobDamAverage float64 = 0
+		var mobDamAffective float64 = 0
+		var mobHitCount float64 = 1
+
+		var mobCoins float64 = 0
+		var mobCoinEXP float64 = 0
+		var mobEXP float64 = 0
+		var mobTotalExp float64 = 0
+		var mobExpPerHP float64 = 0
+
+		var mobPosition string = ""
+		var mobDefaultPosition string = ""
+		var mobSex string = ""
+
+		var mobClass string = ""
+		var mobImmune string = ""
+		var NoSpecialAttackLines string = ""
 
 		// Split the object into individual lines
 		lines := strings.Split(string(object), "\n")
 		for _, line := range lines {
 			//Parse all lines and store data in relivant variables
+			//db.c Line# 2024
 
 			//Get Mobile Number
 			if parseCount == 1 {
@@ -386,15 +430,297 @@ func parseMOB(fileName string) {
 				mobNumber = strings.TrimSpace(line)
 				continue
 			}
+			//Get Keywords
+			if parseCount == 2 {
+				if strings.Contains(line, "~") == true {
+					mobKeywords = mobKeywords + " "
+					mobKeywords = mobKeywords + strings.TrimSpace(line)
+					mobKeywords = strings.ReplaceAll(mobKeywords, "~", "")
+					parseCount++
+					continue
+				} else {
+					mobKeywords = mobKeywords + " "
+					mobKeywords = mobKeywords + strings.TrimSpace(line)
+					continue
+				}
+			}
+			//Get Mobile Name
+			if parseCount == 3 {
+				//Check for ~ end of value symbol and remove it from keywords
+				if strings.Contains(line, "~") == true {
+					mobName = mobName + " "
+					mobName = mobName + strings.TrimSpace(line)
+					mobName = strings.ReplaceAll(mobName, "~", "")
+					parseCount++
+					continue
+				} else {
+					mobName = mobName + " "
+					mobName = mobName + strings.TrimSpace(line)
+					continue
+				}
+			}
+			//Get Mobile Short Desc
+			if parseCount == 4 {
+				//Check for ~ end of value symbol and remove it from keywords
+				if strings.Contains(line, "~") == true {
+					mobShortDesc = mobShortDesc + " "
+					mobShortDesc = mobShortDesc + strings.TrimSpace(line)
+					mobShortDesc = strings.ReplaceAll(mobShortDesc, "~", "")
+					parseCount++
+					continue
+				} else {
+					mobShortDesc = mobShortDesc + " "
+					mobShortDesc = mobShortDesc + strings.TrimSpace(line)
+					continue
+				}
+			}
+			//Get Mobile Long Desc
+			if parseCount == 5 {
+				//Check for ~ end of value symbol and remove it from keywords
+				if strings.Contains(line, "~") == true {
+					mobLongDesc = mobLongDesc + " "
+					mobLongDesc = mobLongDesc + strings.TrimSpace(line)
+					mobLongDesc = strings.ReplaceAll(mobLongDesc, "~", "")
+					parseCount++
+					continue
+				} else {
+					mobLongDesc = mobLongDesc + " "
+					mobLongDesc = mobLongDesc + strings.TrimSpace(line)
+					continue
+				}
+			}
+			// Get 106 295040 0 Y - db.c line# 2060
+			// actionBits, affectedByBits, Align, Letter
+			if parseCount == 6 {
+				parseCount++
+				flags := strings.Fields(line) //Line aways has 4 space delimited values
+				if len(flags) >= 4 {
+					bitvector, err := strconv.ParseUint(flags[0], 10, 64)
+					if err != nil {
+						actionFlags = ""
+					} else {
+						bits := BitValues(bitvector, 30)
+						actionFlags = getActionBits(bits)
+						//Look up each bit in the bitvector and print the flag name
+					}
+					bitvector, err = strconv.ParseUint(flags[1], 10, 64)
+					if err != nil {
+						affectedByFlags = ""
+					} else {
+						bits := BitValues(bitvector, 30)
+						affectedByFlags = getAffectedByBits(bits)
+						//Look up each bit in the bitvector and print the flag name
+					}
+					mobAlignment = strings.TrimSpace(flags[2])
+					mobLetter = strings.TrimSpace(flags[3])
+					continue
+				}
+			}
+			//Parse based on mob letter
+			if mobLetter == "S" {
+
+			}
+			if mobLetter == "X" {
+
+			}
+			if mobLetter == "Y" {
+				//db.c Line 2205
+				if parseCount == 7 {
+					//Capture 48 -13 -5 20d40+4300 2d8+50
+					//Level, Hitroll, Armor, hpNumDice|hpDieSize|hpAdd, damNumDice|DamDieSize|damroll
+					parseCount++
+					flags := strings.Fields(line) //Line of space delimited values
+					if len(flags) >= 5 {
+						mobLevel = strings.TrimSpace(flags[0])
+						mobHitroll = strings.TrimSpace(flags[1])
+						mobArmor = strings.TrimSpace(flags[2])
+
+						//HP 20d40+4300
+						if strings.Contains(flags[3], "d") {
+							_, err := fmt.Sscanf(strings.TrimSpace(flags[3]), "%fd%f+%f", &mobHPDieNumber, &mobHPDieSize, &mobHPBaseNumber)
+							if err != nil {
+								panic(err)
+							}
+						}
+						mobHPMinValue = mobHPDieNumber + mobHPBaseNumber
+						mobHPMaxValue = (mobHPDieNumber * mobHPDieSize) + mobHPBaseNumber
+						// Average of one die
+						avgDie := float64(mobHPDieSize+1) / 2.0
+						mobHPAverage = float64(mobHPDieNumber)*avgDie + float64(mobHPBaseNumber)
+						//Average x2 for sanc
+						if strings.Contains(affectedByFlags, "SANCTUARY") {
+							// substring found
+							mobHPAffective = mobHPAverage * 2
+						} else {
+							mobHPAffective = mobHPAverage
+						}
+						//Damage min, max, average per hit 2d8+50
+						if strings.Contains(flags[3], "d") {
+							_, err := fmt.Sscanf(strings.TrimSpace(flags[3]), "%fd%f+%f", &mobDamDieNumber, &mobDamDieSize, &mobDamBaseNumber)
+							if err != nil {
+								panic(err)
+							}
+						}
+						mobDamMinValue = mobDamDieNumber + mobDamBaseNumber
+						mobDamMaxValue = (mobDamDieNumber * mobDamDieSize) + mobDamBaseNumber
+						// Average of one die
+						avgDie = float64(mobDamDieSize+1) / 2.0
+						mobDamAverage = float64(mobDamDieNumber)*avgDie + float64(mobDamBaseNumber)
+						//Get attacks per round
+						if strings.Contains(affectedByFlags, "DUAL") {
+							mobHitCount = 1.4
+						}
+						//Average x2 for fury
+						if strings.Contains(affectedByFlags, "FURY") {
+							mobDamAffective = mobDamAverage * 2
+						} else {
+							mobDamAffective = mobDamAverage
+						}
+						mobDamAffective = mobHitCount * mobDamAffective
+					}
+					continue
+				}
+				if parseCount == 8 {
+					//Line 2225 gold, exp
+					parseCount++
+					_, err := fmt.Sscanf(strings.TrimSpace(line), "%f %f", &mobCoins, &mobEXP)
+					if err != nil {
+						panic(err)
+					}
+					mobCoinEXP = mobCoins / 3
+					mobTotalExp = mobEXP + mobCoinEXP
+					mobExpPerHP = mobTotalExp / mobHPAffective
+					continue
+				}
+				if parseCount == 9 {
+					//Line 2231 Position, DefaultPosition, Sex - 8 8 0
+					parseCount++
+					flags := strings.Fields(line) //Line of space delimited values
+					if len(flags) >= 3 {
+						mobPosition = getPosition(strings.TrimSpace(flags[0]))
+						mobDefaultPosition = getPosition(strings.TrimSpace(flags[1]))
+						mobSex = getGender(strings.TrimSpace(flags[2]))
+					}
+					continue
+				}
+				if parseCount == 10 {
+					//Line 2242 class, immune, mobManaDieNumber|D|mobManaDieSize+mobHPBaseNumber, NoSpecialAttackLines
+					// 62 0 0d0+0 0
+					parseCount++
+					flags := strings.Fields(line) //Line of space delimited values
+					if len(flags) >= 4 {
+						mobClass = getMobClass(strings.TrimSpace(flags[0]))
+						//Get immunity list from bit vector
+						bitvector, err := strconv.ParseUint(flags[1], 10, 64)
+						if err != nil {
+							mobImmune = ""
+						} else {
+							bits := BitValues(bitvector, 32)
+							mobImmune = getMobImmune(bits)
+						}
+						//Parse out mana values flags[2])
+
+						NoSpecialAttackLines = strings.TrimSpace(flags[3])
+					}
+
+					//Skip over parsecount 11 if no special attack lines exist
+					if NoSpecialAttackLines == "0" {
+						parseCount++
+					}
+					continue
+				}
+				if parseCount == 11 {
+					//Parse Special attack lines Linve db.c 2256
+					//att_type, att_target, att_percent, att_spell
+					//6 1 5 0
+
+				}
+				if parseCount == 12 {
+					//hit_type, act2, affected_by2, immune2
+					//0 0 0 62
+
+				}
+			}
 		}
 		//Make sure item number is actually a number and confirm its not 0 EOF
 		if _, err := strconv.Atoi(mobNumber); err == nil {
 			if mobNumber != "0" {
+				//Convert values to strings
+				// 'f' = decimal format, -1 = use necessary digits, 64 = float64
+				//Mob HP
+				mobHPDieNumber := strconv.FormatFloat(mobHPDieNumber, 'f', -1, 64)
+				mobHPDieSize := strconv.FormatFloat(mobHPDieSize, 'f', -1, 64)
+				mobHPBaseNumber := strconv.FormatFloat(mobHPBaseNumber, 'f', -1, 64)
+				mobHPMinValue := strconv.FormatFloat(mobHPMinValue, 'f', -1, 64)
+				mobHPMaxValue := strconv.FormatFloat(mobHPMaxValue, 'f', -1, 64)
+				mobHPAverage := strconv.FormatFloat(mobHPAverage, 'f', -1, 64)
+				mobHPAffective := strconv.FormatFloat(mobHPAffective, 'f', -1, 64)
+				//Mob Damage
+				mobDamDieNumber := strconv.FormatFloat(mobDamDieNumber, 'f', -1, 64)
+				mobDamDieSize := strconv.FormatFloat(mobDamDieSize, 'f', -1, 64)
+				mobDamBaseNumber := strconv.FormatFloat(mobDamBaseNumber, 'f', -1, 64)
+				mobDamMinValue := strconv.FormatFloat(mobDamMinValue, 'f', -1, 64)
+				mobDamMaxValue := strconv.FormatFloat(mobDamMaxValue, 'f', -1, 64)
+				mobDamAverage := strconv.FormatFloat(mobDamAverage, 'f', -1, 64)
+				mobDamAffective := strconv.FormatFloat(mobDamAffective, 'f', -1, 64)
+				mobHitCount := strconv.FormatFloat(mobHitCount, 'f', -1, 64)
+				//Mob Exp, Coins
+				mobEXP := strconv.FormatFloat(mobEXP, 'f', -1, 64)
+				mobCoins := strconv.FormatFloat(mobCoins, 'f', -1, 64)
+
+				//Convert to string and truncate decimal
+				mobCoinEXP := strconv.Itoa(int(mobCoinEXP))
+				mobTotalExp := strconv.Itoa(int(mobTotalExp))
+				mobExpPerHP := strconv.Itoa(int(mobExpPerHP))
+
 				//Item confirmed valid
 				if printMobiles == 1 {
 					fmt.Println("Zone: " + zoneName)
-					fmt.Println("MobileNumber: " + mobNumber)
+					fmt.Println("ZoneID: " + zoneNumber)
+					fmt.Println("mobNumber: " + mobNumber)
+					fmt.Println("mobName: " + mobName)
+					fmt.Println("mobKeywords: " + mobKeywords)
+					fmt.Println("mobShortDesc: " + mobShortDesc)
+					fmt.Println("mobLongDesc: " + mobLongDesc)
+					fmt.Println("actionFlags: " + actionFlags)
+					fmt.Println("affectedByFlags: " + affectedByFlags)
+					fmt.Println("mobAlignment: " + mobAlignment)
+					fmt.Println("mobLetter: " + mobLetter)
+					fmt.Println("mobLevel: " + mobLevel)
+					fmt.Println("mobHitroll: " + mobHitroll)
+					fmt.Println("mobArmor: " + mobArmor)
+					fmt.Println("mobHPDieNumber: " + mobHPDieNumber)
+					fmt.Println("mobHPDieSize: " + mobHPDieSize)
+					fmt.Println("mobHPBaseNumber: " + mobHPBaseNumber)
+					fmt.Println("mobHPMinValue: " + mobHPMinValue)
+					fmt.Println("mobHPMaxValue: " + mobHPMaxValue)
+					fmt.Println("mobHPAverage: " + mobHPAverage)
+					fmt.Println("mobHPAffective: " + mobHPAffective)
 
+					fmt.Println("mobDamDieNumber: " + mobDamDieNumber)
+					fmt.Println("mobDamDieSize: " + mobDamDieSize)
+					fmt.Println("mobDamBaseNumber: " + mobDamBaseNumber)
+					fmt.Println("mobDamMinValue: " + mobDamMinValue)
+					fmt.Println("mobDamMaxValue: " + mobDamMaxValue)
+					fmt.Println("mobDamAverage: " + mobDamAverage)
+					fmt.Println("mobDamAffective: " + mobDamAffective)
+					fmt.Println("mobHitCount: " + mobHitCount)
+
+					fmt.Println("mobEXP: " + mobEXP)
+					fmt.Println("mobCoins: " + mobCoins)
+					fmt.Println("mobCoinEXP: " + mobCoinEXP)
+					fmt.Println("mobTotalExp: " + mobTotalExp)
+					fmt.Println("mobExpPerEffeciveHP: " + mobExpPerHP)
+
+					fmt.Println("mobPosition: " + mobPosition)
+					fmt.Println("mobDefaultPosition: " + mobDefaultPosition)
+					fmt.Println("mobSex: " + mobSex)
+
+					fmt.Println("mobClass: " + mobClass)
+					fmt.Println("mobImmune: " + mobImmune)
+					fmt.Println("NoSpecialAttackLines: " + NoSpecialAttackLines)
+
+					fmt.Println("=========================================")
 				}
 
 			}
@@ -1192,6 +1518,302 @@ func getResetMode(mode string) string {
 		return "UNKNOWN: " + mode
 	}
 }
+func getMobClass(classNum string) string {
+	switch classNum {
+	case "0":
+		return "Normal"
+	case "1":
+		return "Magic User"
+	case "2":
+		return "Cleric"
+	case "3":
+		return "Thief"
+	case "4":
+		return "Warrior"
+	case "5":
+		return "Ninja"
+	case "6":
+		return "Nomad"
+	case "7":
+		return "Paladin"
+	case "8":
+		return "Anti-Paladin"
+	case "9":
+		return "Avatar"
+	case "10":
+		return "Bard"
+	case "11":
+		return "Commando"
+	case "12":
+		return ""
+	case "13":
+		return ""
+	case "14":
+		return ""
+	case "15":
+		return ""
+	case "16":
+		return ""
+	case "17":
+		return ""
+	case "18":
+		return ""
+	case "19":
+		return ""
+	case "20":
+		return ""
+	case "21":
+		return ""
+	case "22":
+		return ""
+	case "23":
+		return ""
+	case "24":
+		return ""
+	case "25":
+		return ""
+	case "26":
+		return ""
+	case "27":
+		return ""
+	case "28":
+		return ""
+	case "29":
+		return ""
+	case "30":
+		return ""
+	case "31":
+		return ""
+	case "32":
+		return ""
+	case "33":
+		return ""
+	case "34":
+		return ""
+	case "35":
+		return ""
+	case "36":
+		return ""
+	case "37":
+		return ""
+	case "38":
+		return ""
+	case "39":
+		return ""
+	case "40":
+		return ""
+	case "41":
+		return ""
+	case "42":
+		return ""
+	case "43":
+		return ""
+	case "44":
+		return ""
+	case "45":
+		return ""
+	case "46":
+		return ""
+	case "47":
+		return ""
+	case "48":
+		return ""
+	case "49":
+		return ""
+	case "50":
+		return ""
+	case "51":
+		return "Lich"
+	case "52":
+		return "Lesser Undead"
+	case "53":
+		return "Greater Undead"
+	case "54":
+		return "Lesser Vampire"
+	case "55":
+		return "Greater Vampire"
+	case "56":
+		return "Lesser Dragon"
+	case "57":
+		return "Greater Dragon"
+	case "58":
+		return "Lesser Giant"
+	case "59":
+		return "Greater Giant"
+	case "60":
+		return "Lesser Lycanthrope"
+	case "61":
+		return "Greater Lycanthrope"
+	case "62":
+		return "Lesser Demon"
+	case "63":
+		return "Greater Demon"
+	case "64":
+		return "Lesser Elemental"
+	case "65":
+		return "Greater Elemental"
+	case "66":
+		return "Lesser Planar"
+	case "67":
+		return "Greater Planar"
+	case "68":
+		return "Humanoid"
+	case "69":
+		return "Human"
+	case "70":
+		return "Halfling"
+	case "71":
+		return "Dwarf"
+	case "72":
+		return "Elf"
+	case "73":
+		return "Berserker"
+	case "74":
+		return "Kender"
+	case "75":
+		return "Troll"
+	case "76":
+		return "Insectoid"
+	case "77":
+		return "Arachnoid"
+	case "78":
+		return "Fungus"
+	case "79":
+		return "Golem"
+	case "80":
+		return "Reptile"
+	case "81":
+		return "Amphibian"
+	case "82":
+		return "Dinosaur"
+	case "83":
+		return "Avian"
+	case "84":
+		return "Fish"
+	case "85":
+		return "Doppelganger"
+	case "86":
+		return "Animal"
+	case "87":
+		return "Automaton"
+	case "88":
+		return "Simian"
+	case "89":
+		return "Canine"
+	case "90":
+		return "Feline"
+	case "91":
+		return "Bovine"
+	case "92":
+		return "Plant"
+	case "93":
+		return "Rodent"
+	case "94":
+		return "Blob"
+	case "95":
+		return "Ghost"
+	case "96":
+		return "Orc"
+	case "97":
+		return "Gargoyle"
+	case "98":
+		return "Invertibrate"
+	case "99":
+		return "Drow"
+	case "100":
+		return "Statue"
+	default:
+		return "Unknown"
+	}
+}
+func getMobImmune(bits []int) string {
+	immuneNames := []string{
+		"FIRE",
+		"ELECTRIC",
+		"POISON",
+		"PUMMEL",
+		"KICK",
+		"PUNCH",
+		"SLEEP",
+		"CHARM",
+		"BLINDNESS",
+		"PARALYSIS",
+		"DRAIN",
+		"DISEMBOWEL",
+		"DISINTEGRATE",
+		"CLAIR",
+		"SUMMON",
+		"HIT",
+		"BLUDGEON",
+		"PIERCE",
+		"SLASH",
+		"WHIP",
+		"CLAW",
+		"BITE",
+		"STING",
+		"CRUSH",
+		"HACK",
+		"CHOP",
+		"SLICE",
+		"BACKSTAB",
+		"AMBUSH",
+		"ASSAULT",
+		"PHYSICAL",
+		"MAGICAL",
+	}
+
+	var mobImmune string
+
+	for i, v := range bits {
+		if v == 1 && i < len(immuneNames) {
+			mobImmune += " " + immuneNames[i]
+		}
+	}
+
+	return strings.TrimSpace(mobImmune)
+}
+func getGender(genderNum string) string {
+	switch genderNum {
+	case "0":
+		return "neutral"
+	case "1":
+		return "male"
+	case "2":
+		return "female"
+	default:
+		return genderNum
+	}
+}
+func getPosition(positionNum string) string {
+	switch positionNum {
+	case "0":
+		return "Dead"
+	case "1":
+		return "Mortally wounded"
+	case "2":
+		return "Incapacitated"
+	case "3":
+		return "Stunned"
+	case "4":
+		return "Sleeping"
+	case "5":
+		return "Resting"
+	case "6":
+		return "Sitting"
+	case "7":
+		return "Fighting"
+	case "8":
+		return "Standing"
+	case "9":
+		return "Flying"
+	case "10":
+		return "Riding"
+	case "11":
+		return "Swimming"
+	default:
+		return ""
+	}
+}
 func getSpell(spellNum string) string {
 	switch spellNum {
 	case "0":
@@ -1987,6 +2609,200 @@ func getAFF2Flags(bits []int) string {
 	}
 	af2Flags = strings.TrimSpace(af2Flags)
 	return af2Flags
+}
+func getAffectedByBits(bits []int) string {
+	var affectedByFlags string = ""
+	for i, v := range bits {
+		if i == 0 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "BLIND"
+		}
+		if i == 1 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "INVISIBLE"
+		}
+		if i == 2 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "DETECT-ALIGNMENT"
+		}
+		if i == 3 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "DETECT-INVISIBLE"
+		}
+		if i == 4 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "DETECT-MAGIC"
+		}
+		if i == 5 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "SENSE-LIFE"
+		}
+		if i == 6 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "HOLD"
+		}
+		if i == 7 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "SANCTUARY"
+		}
+		if i == 8 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "GROUP"
+		}
+		if i == 9 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "CONFUSION"
+		}
+		if i == 10 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "CURSE"
+		}
+		if i == 11 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "SPHERE"
+		}
+		if i == 12 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "POISON"
+		}
+		if i == 13 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "PROTECT-EVIL"
+		}
+		if i == 14 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "PARALYSIS"
+		}
+		if i == 15 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "INFRAVISION"
+		}
+		if i == 16 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "STATUE"
+		}
+		if i == 17 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "SLEEP"
+		}
+		if i == 18 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "DODGE"
+		}
+		if i == 19 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "SNEAK"
+		}
+		if i == 20 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "HIDE"
+		}
+		if i == 21 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "ANIMATE"
+		}
+		if i == 22 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "CHARM"
+		}
+		if i == 23 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "PROTECT-GOOD"
+		}
+		if i == 24 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "FLY"
+		}
+		if i == 25 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "SUBDUE"
+		}
+		if i == 26 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "IMINV"
+		}
+		if i == 27 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "INVUL"
+		}
+		if i == 28 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "DUAL"
+		}
+		if i == 29 && v == 1 {
+			affectedByFlags = affectedByFlags + " " + "FURY"
+		}
+	}
+	affectedByFlags = strings.TrimSpace(affectedByFlags)
+	return affectedByFlags
+}
+func getActionBits(bits []int) string {
+	var actionFlags string = ""
+	for i, v := range bits {
+		if i == 0 && v == 1 {
+			actionFlags = actionFlags + " " + "SPEC"
+		}
+		if i == 1 && v == 1 {
+			actionFlags = actionFlags + " " + "SENTINEL"
+		}
+		if i == 2 && v == 1 {
+			actionFlags = actionFlags + " " + "SCAVENGER"
+		}
+		if i == 3 && v == 1 {
+			actionFlags = actionFlags + " " + "ISNPC"
+		}
+		if i == 4 && v == 1 {
+			actionFlags = actionFlags + " " + "NICE-THIEF"
+		}
+		if i == 5 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGRESSIVE"
+		}
+		if i == 6 && v == 1 {
+			actionFlags = actionFlags + " " + "STAY-ZONE"
+		}
+		if i == 7 && v == 1 {
+			actionFlags = actionFlags + " " + "WIMPY"
+		}
+		if i == 8 && v == 1 {
+			actionFlags = actionFlags + " " + "SUBDUE"
+		}
+		if i == 9 && v == 1 {
+			actionFlags = actionFlags + " " + "OPEN-DOOR"
+		}
+		if i == 10 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGWA"
+		}
+		if i == 11 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGTH"
+		}
+		if i == 12 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGCL"
+		}
+		if i == 13 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGMU"
+		}
+		if i == 14 && v == 1 {
+			actionFlags = actionFlags + " " + "MEMORY"
+		}
+		if i == 15 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGNI"
+		}
+		if i == 16 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGNO"
+		}
+		if i == 17 && v == 1 {
+			actionFlags = actionFlags + " " + "ARM"
+		}
+		if i == 18 && v == 1 {
+			actionFlags = actionFlags + " " + "MOUNT"
+		}
+		if i == 19 && v == 1 {
+			actionFlags = actionFlags + " " + "FLY"
+		}
+		if i == 20 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGPA"
+		}
+		if i == 21 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGAP"
+		}
+		if i == 22 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGBA"
+		}
+		if i == 23 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGCO"
+		}
+		if i == 24 && v == 1 {
+			actionFlags = actionFlags + " " + "SHIELD"
+		}
+		if i == 25 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGEVIL"
+		}
+		if i == 26 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGGOOD"
+		}
+		if i == 27 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGNEUT"
+		}
+		if i == 28 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGLEADER"
+		}
+		if i == 29 && v == 1 {
+			actionFlags = actionFlags + " " + "AGGRANDOM"
+		}
+	}
+	actionFlags = strings.TrimSpace(actionFlags)
+	return actionFlags
 }
 func getAffFlags(bits []int) string {
 	var afFlags string = ""
