@@ -417,6 +417,13 @@ func parseMOB(fileName string) {
 		var mobClass string = ""
 		var mobImmune string = ""
 		var NoSpecialAttackLines string = ""
+		var specialAttackLoopCount int = 0
+
+		var attackType string = ""
+		var attackTarget string = ""
+		var attackPercent string = ""
+		var attackSpell string = ""
+		var specialAttackInt int = 0
 
 		// Split the object into individual lines
 		lines := strings.Split(string(object), "\n")
@@ -626,19 +633,46 @@ func parseMOB(fileName string) {
 					//Skip over parsecount 11 if no special attack lines exist
 					if NoSpecialAttackLines == "0" {
 						parseCount++
+					} else {
+						//Convert string to int
+						specialAttackInt, err = strconv.Atoi(NoSpecialAttackLines)
+						if err != nil {
+							// handle invalid input
+						}
 					}
 					continue
 				}
 				if parseCount == 11 {
+					specialAttackLoopCount++
 					//Parse Special attack lines Linve db.c 2256
-					//att_type, att_target, att_percent, att_spell
-					//6 1 5 0
+					//att_type, att_target, att_percent, att_spell - 6 1 5 0
+					if specialAttackInt >= specialAttackLoopCount {
+						flags := strings.Fields(line) //Line of space delimited values
+						if len(flags) >= 4 {
+							attackType = attackType + " " + getMobSpecialAttackType(strings.TrimSpace(flags[0]))
+							attackTarget = attackTarget + " " + getMobSpecialAttackTarget(strings.TrimSpace(flags[1]))
+							attackPercent = attackPercent + " " + strings.TrimSpace(flags[2])
+							attackSpell = attackSpell + " " + getSpell(strings.TrimSpace(flags[3]))
+						}
+					} else {
+						attackType = strings.TrimSpace(attackType)
+						attackTarget = strings.TrimSpace(attackTarget)
+						attackPercent = strings.TrimSpace(attackPercent)
+						attackSpell = strings.TrimSpace(attackSpell)
 
+						parseCount++
+						continue
+					}
 				}
 				if parseCount == 12 {
 					//hit_type, act2, affected_by2, immune2
 					//0 0 0 62
+					flags := strings.Fields(line) //Line of space delimited values
+					if len(flags) >= 4 {
 
+					}
+					parseCount++
+					continue
 				}
 			}
 		}
@@ -719,6 +753,11 @@ func parseMOB(fileName string) {
 					fmt.Println("mobClass: " + mobClass)
 					fmt.Println("mobImmune: " + mobImmune)
 					fmt.Println("NoSpecialAttackLines: " + NoSpecialAttackLines)
+
+					fmt.Println("attackType: " + attackType)
+					fmt.Println("attackTarget: " + attackTarget)
+					fmt.Println("attackPercent: " + attackPercent)
+					fmt.Println("attackSpell: " + attackSpell)
 
 					fmt.Println("=========================================")
 				}
@@ -1724,6 +1763,58 @@ func getMobClass(classNum string) string {
 		return "Statue"
 	default:
 		return "Unknown"
+	}
+}
+func getMobSpecialAttackTarget(attackTargetNum string) string {
+	switch attackTargetNum {
+	case "0":
+		return "NONE"
+	case "1":
+		return "BUFFER"
+	case "2":
+		return "RAN_GROUP"
+	case "3":
+		return "RAN_ROOM"
+	case "4":
+		return "GROUP"
+	case "5":
+		return "ROOM"
+	case "6":
+		return "SELF"
+	case "7":
+		return "LEADER"
+	default:
+		return "UNKNOWN"
+	}
+}
+func getMobSpecialAttackType(attackTypeNum string) string {
+	switch attackTypeNum {
+	case "0":
+		return "NONE"
+	case "1":
+		return "SPELL CAST"
+	case "2":
+		return "KICK"
+	case "3":
+		return "PUMMEL"
+	case "4":
+		return "PUNCH"
+	case "5":
+		return "BITE"
+	case "6":
+		return "CLAW"
+	case "7":
+		return "BASH"
+	case "8":
+		return "TAILSLAM"
+	case "9":
+		return "DISARM"
+	case "10":
+		return "TRAMPLE"
+	case "11":
+		return "SPELL SKILL"
+	default:
+		return "UNKNOWN"
 	}
 }
 func getMobImmune(bits []int) string {
