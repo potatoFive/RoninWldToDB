@@ -17,8 +17,8 @@ var zoneName string = ""
 var zoneNumber string = ""
 
 // 1 == PRINT PARSED ITEMS TO CONSOLE
-var printZone int = 0
-var printObjects int = 0
+var printZone int = 1
+var printObjects int = 1
 var printMobiles int = 1
 
 const bitsPerInt32 = 32
@@ -761,7 +761,166 @@ func parseMOB(fileName string) {
 
 					fmt.Println("=========================================")
 				}
+				//Write data to a CSV file =========================================================
+				filename := "mob.csv"
 
+				// Header row
+				header := []string{
+					// Zone / Mob identity
+					"zoneName",
+					"zoneNumber",
+					"mobNumber",
+					"mobName",
+					"mobKeywords",
+					"mobShortDesc",
+					"mobLongDesc",
+
+					// Flags / alignment
+					"actionFlags",
+					"affectedByFlags",
+					"mobAlignment",
+
+					// Core stats
+					"mobLetter",
+					"mobLevel",
+					"mobHitroll",
+					"mobArmor",
+
+					// Hit points
+					"mobHPDieNumber",
+					"mobHPDieSize",
+					"mobHPBaseNumber",
+					"mobHPMinValue",
+					"mobHPMaxValue",
+					"mobHPAverage",
+					"mobHPAffective",
+
+					// Damage
+					"mobDamDieNumber",
+					"mobDamDieSize",
+					"mobDamBaseNumber",
+					"mobDamMinValue",
+					"mobDamMaxValue",
+					"mobDamAverage",
+					"mobDamAffective",
+					"mobHitCount",
+
+					// Experience / currency
+					"mobEXP",
+					"mobCoins",
+					"mobCoinEXP",
+					"mobTotalExp",
+					"mobExpPerEffectiveHP",
+
+					// Position / sex
+					"mobPosition",
+					"mobDefaultPosition",
+					"mobSex",
+
+					// Class / immunities / specials
+					"mobClass",
+					"mobImmune",
+					"NoSpecialAttackLines",
+
+					// Special attack data
+					"attackType",
+					"attackTarget",
+					"attackPercent",
+					"attackSpell",
+				}
+
+				// Check if file exists
+				if _, err := os.Stat(filename); os.IsNotExist(err) {
+					// File does not exist, create it and write header
+					file, err := os.Create(filename)
+					if err != nil {
+						log.Fatal(err)
+					}
+					writer := csv.NewWriter(file)
+					if err := writer.Write(header); err != nil {
+						log.Fatal(err)
+					}
+					writer.Flush()
+					file.Close()
+				}
+
+				// Now open the file in append mode
+				file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0644)
+				if err != nil {
+					log.Fatal(err)
+				}
+				defer file.Close()
+
+				writer := csv.NewWriter(file)
+				defer writer.Flush()
+				// Record row (convert all variables to strings)
+				record := []string{
+					// Zone / Mob identity
+					zoneName,
+					zoneNumber,
+					mobNumber,
+					mobName,
+					mobKeywords,
+					mobShortDesc,
+					mobLongDesc,
+
+					// Flags / alignment
+					actionFlags,
+					affectedByFlags,
+					mobAlignment,
+
+					// Core stats
+					mobLetter,
+					mobLevel,
+					mobHitroll,
+					mobArmor,
+
+					// Hit points
+					mobHPDieNumber,
+					mobHPDieSize,
+					mobHPBaseNumber,
+					mobHPMinValue,
+					mobHPMaxValue,
+					mobHPAverage,
+					mobHPAffective,
+
+					// Damage
+					mobDamDieNumber,
+					mobDamDieSize,
+					mobDamBaseNumber,
+					mobDamMinValue,
+					mobDamMaxValue,
+					mobDamAverage,
+					mobDamAffective,
+					mobHitCount,
+
+					// Experience / currency
+					mobEXP,
+					mobCoins,
+					mobCoinEXP,
+					mobTotalExp,
+					mobExpPerHP,
+
+					// Position / sex
+					mobPosition,
+					mobDefaultPosition,
+					mobSex,
+
+					// Class / immunities / specials
+					mobClass,
+					mobImmune,
+					NoSpecialAttackLines,
+
+					// Special attack data
+					attackType,
+					attackTarget,
+					attackPercent,
+					attackSpell,
+				}
+				// Write record
+				if err := writer.Write(record); err != nil {
+					log.Fatal(err)
+				}
 			}
 		}
 	}
