@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/csv"
 	"fmt"
 	"io/fs"
@@ -8,13 +9,17 @@ import (
 	"log"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+
+	_ "modernc.org/sqlite"
 )
 
 var zoneName string = ""
 var zoneNumber string = ""
+var db *sql.DB
 
 // 1 == PRINT PARSED ITEMS TO CONSOLE
 var printZone int = 1
@@ -29,21 +34,49 @@ type BitVector struct {
 	version int
 }
 
+var excludedOBJ = make(map[string]bool)
+
 func main() {
-	//Hard coded path to Ronin world folder
+	// Hard coded path to Ronin world folder
 	path := "../ronin/lib/world"
 	var fileName string = ""
 
+	// 1. Read excluded.txt and build a map for fast lookup
+	excludedFiles := make(map[string]bool)
+	exData, err := os.ReadFile("excluded.txt") // Using os.ReadFile (replaces ioutil.ReadFile)
+	if err == nil {
+		lines := strings.Split(string(exData), "\n")
+		for _, line := range lines {
+			name := strings.TrimSpace(line)
+			if name != "" {
+				excludedFiles[name] = true
+			}
+		}
+	}
+
+	// Open DB (assign to global, do NOT redeclare)
+	db, err = sql.Open("sqlite", "ronin.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
 	files := listFiles(path)
 	for _, v := range files {
-		//Parse each file type
+		// 2. Check if the current file is in the excluded list
+		// baseName gets just the filename (e.g., "midgaard.zon") from the full path
+		baseName := filepath.Base(v)
+		if excludedFiles[baseName] {
+			fmt.Printf("Skipping excluded file: %s\n", baseName)
+			continue
+		}
+
+		// Parse each file type
 		parseZON(v)
-		fileName = strings.TrimRight(v, "zon")
-		//parseWLD(fileName + "wld")
-		//fileName = strings.TrimRight(fileName, "wld")
-		parseOBJ(fileName + "obj")
-		fileName = strings.TrimRight(fileName, "obj")
-		parseMOB(fileName + "mob")
+		fileName = strings.TrimSuffix(v, ".zon") // Use TrimSuffix for safer extension removal
+
+		parseOBJ(fileName + ".obj")
+		parseMOB(fileName + ".mob")
 	}
 }
 func listFiles(dir string) []string {
@@ -109,7 +142,8 @@ func parseZON(fileName string) {
 			if strings.Contains(line, "~") {
 				validData = 1
 				parseCount++
-				zoneName = strings.TrimSpace(strings.ReplaceAll(line, "~", ""))
+				zoneName = strings.TrimSpace(strings.ReplaceAll(zoneName, "~", ""))
+
 				continue
 			}
 		}
@@ -277,6 +311,7 @@ func parseZON(fileName string) {
 			header := []string{
 				"ZoneNumber",
 				"ZoneName",
+				"FileName",
 				"zonCreationDate",
 				"zonUpdateDate",
 				"zonAuthor",
@@ -306,6 +341,9 @@ func parseZON(fileName string) {
 					log.Fatal(err)
 				}
 				writer.Flush()
+				if err := writer.Error(); err != nil {
+					log.Fatal(err)
+				}
 				file.Close()
 			}
 			// Now open the file in append mode
@@ -320,6 +358,7 @@ func parseZON(fileName string) {
 			record := []string{
 				zoneNumber,
 				zoneName,
+				fileName,
 				zonCreationDate,
 				zonUpdateDate,
 				zonAuthor,
@@ -341,6 +380,59 @@ func parseZON(fileName string) {
 			if err := writer.Write(record); err != nil {
 				log.Fatal(err)
 			}
+
+			//=================================================================================
+			// Write data to SQL database (ZONES)
+			//=================================================================================
+
+			// Create table
+			createTable := `
+			CREATE TABLE IF NOT EXISTS zones (
+				ZoneNumber TEXT,
+				ZoneName TEXT,
+				FileName TEXT,
+				zonCreationDate TEXT,
+				zonUpdateDate TEXT,
+				zonAuthor TEXT,
+				respawnTimer TEXT,
+				resetMode TEXT,
+				lastRoomNum TEXT,
+				spawnMobileID TEXT,
+				spawnMobileCount TEXT,
+				spawnMobileRoomID TEXT,
+				spawnMobileType TEXT,
+				spawnItemID TEXT,
+				spawnItemLocationID TEXT,
+				spawnItemType TEXT,
+				spawnDoorID TEXT,
+				spawnDoorState TEXT
+			);`
+
+			_, err = db.Exec(createTable)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Insert statement (18 columns)
+			insertSQL := `
+			INSERT INTO zones VALUES (
+				?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+				?, ?, ?, ?, ?, ?, ?, ?
+			);`
+
+			// Convert []string → []interface{}
+			args := make([]interface{}, len(record))
+			for i, v := range record {
+				args[i] = v
+			}
+
+			// Execute insert
+			_, err = db.Exec(insertSQL, args...)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			//=================================================================================
 		}
 	}
 }
@@ -575,7 +667,7 @@ func parseMOB(fileName string) {
 						mobDamAverage = float64(mobDamDieNumber)*avgDie + float64(mobDamBaseNumber)
 						//Get attacks per round
 						if strings.Contains(affectedByFlags, "DUAL") {
-							mobHitCount = 1.4
+							mobHitCount = 1.3
 						}
 						//Average x2 for fury
 						if strings.Contains(affectedByFlags, "FURY") {
@@ -761,12 +853,11 @@ func parseMOB(fileName string) {
 
 					fmt.Println("=========================================")
 				}
-				//Write data to a CSV file =========================================================
+				// Write data to a CSV file =========================================================
 				filename := "mob.csv"
 
 				// Header row
 				header := []string{
-					// Zone / Mob identity
 					"zoneName",
 					"zoneNumber",
 					"mobNumber",
@@ -775,18 +866,15 @@ func parseMOB(fileName string) {
 					"mobShortDesc",
 					"mobLongDesc",
 
-					// Flags / alignment
 					"actionFlags",
 					"affectedByFlags",
 					"mobAlignment",
 
-					// Core stats
 					"mobLetter",
 					"mobLevel",
 					"mobHitroll",
 					"mobArmor",
 
-					// Hit points
 					"mobHPDieNumber",
 					"mobHPDieSize",
 					"mobHPBaseNumber",
@@ -795,7 +883,6 @@ func parseMOB(fileName string) {
 					"mobHPAverage",
 					"mobHPAffective",
 
-					// Damage
 					"mobDamDieNumber",
 					"mobDamDieSize",
 					"mobDamBaseNumber",
@@ -805,46 +892,48 @@ func parseMOB(fileName string) {
 					"mobDamAffective",
 					"mobHitCount",
 
-					// Experience / currency
 					"mobEXP",
 					"mobCoins",
 					"mobCoinEXP",
 					"mobTotalExp",
 					"mobExpPerEffectiveHP",
 
-					// Position / sex
 					"mobPosition",
 					"mobDefaultPosition",
 					"mobSex",
 
-					// Class / immunities / specials
 					"mobClass",
 					"mobImmune",
 					"NoSpecialAttackLines",
 
-					// Special attack data
 					"attackType",
 					"attackTarget",
 					"attackPercent",
 					"attackSpell",
 				}
 
-				// Check if file exists
+				// Create file if it doesn't exist
 				if _, err := os.Stat(filename); os.IsNotExist(err) {
-					// File does not exist, create it and write header
 					file, err := os.Create(filename)
 					if err != nil {
 						log.Fatal(err)
 					}
+
 					writer := csv.NewWriter(file)
+
 					if err := writer.Write(header); err != nil {
 						log.Fatal(err)
 					}
+
 					writer.Flush()
+					if err := writer.Error(); err != nil {
+						log.Fatal(err)
+					}
+
 					file.Close()
 				}
 
-				// Now open the file in append mode
+				// Open file in append mode
 				file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0644)
 				if err != nil {
 					log.Fatal(err)
@@ -852,10 +941,9 @@ func parseMOB(fileName string) {
 				defer file.Close()
 
 				writer := csv.NewWriter(file)
-				defer writer.Flush()
-				// Record row (convert all variables to strings)
+
+				// Record row
 				record := []string{
-					// Zone / Mob identity
 					zoneName,
 					zoneNumber,
 					mobNumber,
@@ -864,18 +952,15 @@ func parseMOB(fileName string) {
 					mobShortDesc,
 					mobLongDesc,
 
-					// Flags / alignment
 					actionFlags,
 					affectedByFlags,
 					mobAlignment,
 
-					// Core stats
 					mobLetter,
 					mobLevel,
 					mobHitroll,
 					mobArmor,
 
-					// Hit points
 					mobHPDieNumber,
 					mobHPDieSize,
 					mobHPBaseNumber,
@@ -884,7 +969,6 @@ func parseMOB(fileName string) {
 					mobHPAverage,
 					mobHPAffective,
 
-					// Damage
 					mobDamDieNumber,
 					mobDamDieSize,
 					mobDamBaseNumber,
@@ -894,33 +978,117 @@ func parseMOB(fileName string) {
 					mobDamAffective,
 					mobHitCount,
 
-					// Experience / currency
 					mobEXP,
 					mobCoins,
 					mobCoinEXP,
 					mobTotalExp,
-					mobExpPerHP,
+					mobExpPerHP, // ⚠️ make sure this matches your variable naming
 
-					// Position / sex
 					mobPosition,
 					mobDefaultPosition,
 					mobSex,
 
-					// Class / immunities / specials
 					mobClass,
 					mobImmune,
 					NoSpecialAttackLines,
 
-					// Special attack data
 					attackType,
 					attackTarget,
 					attackPercent,
 					attackSpell,
 				}
-				// Write record
+
+				// Write CSV record
 				if err := writer.Write(record); err != nil {
 					log.Fatal(err)
 				}
+
+				writer.Flush()
+				if err := writer.Error(); err != nil {
+					log.Fatal(err)
+				}
+
+				//=================================================================================
+				// Write data to SQL database
+				//=================================================================================
+
+				// Create table
+				createTable := `
+				CREATE TABLE IF NOT EXISTS mobs (
+					zoneName TEXT,
+					zoneNumber TEXT,
+					mobNumber TEXT,
+					mobName TEXT,
+					mobKeywords TEXT,
+					mobShortDesc TEXT,
+					mobLongDesc TEXT,
+					actionFlags TEXT,
+					affectedByFlags TEXT,
+					mobAlignment TEXT,
+					mobLetter TEXT,
+					mobLevel TEXT,
+					mobHitroll TEXT,
+					mobArmor TEXT,
+					mobHPDieNumber TEXT,
+					mobHPDieSize TEXT,
+					mobHPBaseNumber TEXT,
+					mobHPMinValue TEXT,
+					mobHPMaxValue TEXT,
+					mobHPAverage TEXT,
+					mobHPAffective TEXT,
+					mobDamDieNumber TEXT,
+					mobDamDieSize TEXT,
+					mobDamBaseNumber TEXT,
+					mobDamMinValue TEXT,
+					mobDamMaxValue TEXT,
+					mobDamAverage TEXT,
+					mobDamAffective TEXT,
+					mobHitCount TEXT,
+					mobEXP TEXT,
+					mobCoins TEXT,
+					mobCoinEXP TEXT,
+					mobTotalExp TEXT,
+					mobExpPerEffectiveHP TEXT,
+					mobPosition TEXT,
+					mobDefaultPosition TEXT,
+					mobSex TEXT,
+					mobClass TEXT,
+					mobImmune TEXT,
+					NoSpecialAttackLines TEXT,
+					attackType TEXT,
+					attackTarget TEXT,
+					attackPercent TEXT,
+					attackSpell TEXT
+				);`
+
+				_, err = db.Exec(createTable)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				// Insert statement
+				insertSQL := `
+				INSERT INTO mobs VALUES (
+					?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+					?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+					?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+					?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+					?, ?, ?, ?
+				);`
+
+				// Convert record → interface{}
+				args := make([]interface{}, len(record))
+				for i, v := range record {
+					args[i] = v
+				}
+
+				_, err = db.Exec(insertSQL, args...)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				//=================================================================================
+
 			}
 		}
 	}
@@ -1627,7 +1795,7 @@ func parseOBJ(fileName string) {
 					fmt.Println("ObjTimer: " + objTimer)
 					fmt.Println("-----------------------------------------------------")
 				}
-				//Write data to a CSV file =========================================================
+				// Write data to a CSV file =========================================================
 				filename := "obj.csv"
 
 				// Header row
@@ -1648,22 +1816,27 @@ func parseOBJ(fileName string) {
 					"loadrate", "boardReadLvl", "boardWriteLvl", "boardRemoveLvl", "objTimer",
 				}
 
-				// Check if file exists
+				// Create file if not exists
 				if _, err := os.Stat(filename); os.IsNotExist(err) {
-					// File does not exist, create it and write header
 					file, err := os.Create(filename)
 					if err != nil {
 						log.Fatal(err)
 					}
+
 					writer := csv.NewWriter(file)
 					if err := writer.Write(header); err != nil {
 						log.Fatal(err)
 					}
+
 					writer.Flush()
+					if err := writer.Error(); err != nil {
+						log.Fatal(err)
+					}
+
 					file.Close()
 				}
 
-				// Now open the file in append mode
+				// Append to CSV
 				file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0644)
 				if err != nil {
 					log.Fatal(err)
@@ -1671,8 +1844,8 @@ func parseOBJ(fileName string) {
 				defer file.Close()
 
 				writer := csv.NewWriter(file)
-				defer writer.Flush()
-				// Record row (convert all variables to strings)
+
+				// Record
 				record := []string{
 					zoneName, zoneNumber, itemNumber, keywords, shortDesc, longDesc, itemType, wearFlags, extraFlags, objAffFlags,
 					Affect0, AffectModifier0, Affect1, AffectModifier1, Affect2, AffectModifier2,
@@ -1690,10 +1863,116 @@ func parseOBJ(fileName string) {
 					loadrate, boardReadLvl, boardWriteLvl, boardRemoveLvl, objTimer,
 				}
 
-				// Write record
 				if err := writer.Write(record); err != nil {
 					log.Fatal(err)
 				}
+
+				writer.Flush()
+				if err := writer.Error(); err != nil {
+					log.Fatal(err)
+				}
+
+				//=================================================================================
+				// Write data to SQL database (OBJECTS)
+				//=================================================================================
+
+				// Create table
+				createTable := `
+				CREATE TABLE IF NOT EXISTS objects (
+					zone TEXT,
+					zoneNumber TEXT,
+					itemNumber TEXT,
+					keywords TEXT,
+					shortDesc TEXT,
+					longDesc TEXT,
+					itemType TEXT,
+					wearFlags TEXT,
+					extraFlags TEXT,
+					objAffFlags TEXT,
+					Affect0 TEXT,
+					AffectModifier0 TEXT,
+					Affect1 TEXT,
+					AffectModifier1 TEXT,
+					Affect2 TEXT,
+					AffectModifier2 TEXT,
+					value0 TEXT,
+					value1 TEXT,
+					value2 TEXT,
+					value3 TEXT,
+					lightColor TEXT,
+					lightType TEXT,
+					lightHours TEXT,
+					recipeCreates TEXT,
+					recipeRequires1 TEXT,
+					recipeRequires2 TEXT,
+					recipeRequires3 TEXT,
+					aqOrderRequires1 TEXT,
+					aqOrderRequires2 TEXT,
+					aqOrderRequires3 TEXT,
+					aqOrderRequires4 TEXT,
+					maxContains TEXT,
+					currentContains TEXT,
+					liquidType TEXT,
+					foodSatiation TEXT,
+					poisoned TEXT,
+					lockType TEXT,
+					assignedKey TEXT,
+					keyType TEXT,
+					picksCurrent TEXT,
+					picksMax TEXT,
+					affAC TEXT,
+					spell TEXT,
+					spellLevel TEXT,
+					chargesMax TEXT,
+					chargesCurrent TEXT,
+					weaponSpecial TEXT,
+					weaponType TEXT,
+					diceNumber TEXT,
+					diceSize TEXT,
+					damageMin TEXT,
+					damageMax TEXT,
+					damageAve TEXT,
+					gunLicense TEXT,
+					bulletsLeft TEXT,
+					gunNumber TEXT,
+					weight TEXT,
+					cost TEXT,
+					rent TEXT,
+					treasureCoins TEXT,
+					subclassPointValue TEXT,
+					loadrate TEXT,
+					boardReadLvl TEXT,
+					boardWriteLvl TEXT,
+					boardRemoveLvl TEXT,
+					objTimer TEXT
+				);`
+
+				_, err = db.Exec(createTable)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				// 🔴 IMPORTANT: placeholders MUST match len(record) = 66
+				placeholders := make([]string, 66)
+				for i := range placeholders {
+					placeholders[i] = "?"
+				}
+
+				insertSQL := fmt.Sprintf(
+					"INSERT INTO objects VALUES (%s);",
+					strings.Join(placeholders, ", "),
+				)
+				// Convert record → []interface{}
+				args := make([]interface{}, len(record))
+				for i, v := range record {
+					args[i] = v
+				}
+
+				_, err = db.Exec(insertSQL, args...)
+				if err != nil {
+					log.Fatal(err)
+				}
+
 			}
 		}
 	}
