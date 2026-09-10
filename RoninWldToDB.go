@@ -10,7 +10,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -20,6 +19,17 @@ import (
 var zoneName string = ""
 var zoneNumber string = ""
 var db *sql.DB
+
+// Zone multipliers from the 'Y' reset line (db.c read_zone: mult_hp, mult_mana,
+// mult_hitroll, mult_damage, mult_armor, mult_xp, mult_gold, mult_level)
+var zoneMultHp int = 100
+var zoneMultMana int = 100
+var zoneMultHitroll int = 100
+var zoneMultDamage int = 100
+var zoneMultArmor int = 100
+var zoneMultXp int = 100
+var zoneMultGold int = 100
+var zoneMultLevel int = 100
 
 // 1 == PRINT PARSED ITEMS TO CONSOLE
 var printZone int = 1
@@ -51,6 +61,13 @@ func main() {
 			if name != "" {
 				excludedFiles[name] = true
 			}
+		}
+	}
+
+	// Start from a clean slate so re-runs don't append duplicate rows
+	for _, f := range []string{"ronin.db", "mob.csv", "obj.csv", "zon.csv"} {
+		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+			log.Fatal(err)
 		}
 	}
 
@@ -112,6 +129,18 @@ func parseZON(fileName string) {
 	var zonCreationDate string = ""
 	var zonUpdateDate string = ""
 	var zonAuthor string = ""
+	//Last mobile added by an M/F/R line; G (obj_to_char) and E (equip) lines
+	//apply to this mobile in the ROM reset format
+	var currentMobileID string = ""
+	//Reset zone multipliers (db.c defaults all to 100)
+	zoneMultHp = 100
+	zoneMultMana = 100
+	zoneMultHitroll = 100
+	zoneMultDamage = 100
+	zoneMultArmor = 100
+	zoneMultXp = 100
+	zoneMultGold = 100
+	zoneMultLevel = 100
 	// Split the object into individual lines
 	lines := strings.Split(string(data), "\n")
 	for _, line := range lines {
@@ -123,6 +152,7 @@ func parseZON(fileName string) {
 		var spawnItemID string = ""
 		var spawnItemLocationID string = ""
 		var spawnItemType string = ""
+		var spawnItemMobID string = ""
 		var spawnDoorID string = ""
 		var spawnDoorState string = ""
 
@@ -173,6 +203,21 @@ func parseZON(fileName string) {
 					zonAuthor = strings.TrimSpace(flags[4])
 				}
 			}
+			//Y: zone multipliers - Y <hp> <mana> <hitroll> <damage> <armor> <xp> <gold> <level>
+			if strings.HasPrefix(line, "Y ") {
+				flags := strings.Fields(line)
+				if len(flags) >= 9 {
+					validData = 1
+					zoneMultHp, _ = strconv.Atoi(strings.TrimSpace(flags[1]))
+					zoneMultMana, _ = strconv.Atoi(strings.TrimSpace(flags[2]))
+					zoneMultHitroll, _ = strconv.Atoi(strings.TrimSpace(flags[3]))
+					zoneMultDamage, _ = strconv.Atoi(strings.TrimSpace(flags[4]))
+					zoneMultArmor, _ = strconv.Atoi(strings.TrimSpace(flags[5]))
+					zoneMultXp, _ = strconv.Atoi(strings.TrimSpace(flags[6]))
+					zoneMultGold, _ = strconv.Atoi(strings.TrimSpace(flags[7]))
+					zoneMultLevel, _ = strconv.Atoi(strings.TrimSpace(flags[8]))
+				}
+			}
 			//Need to parse E F G O D lines
 			//'M': /* read a mobile */ db.c line 2623
 			if strings.HasPrefix(line, "M ") {
@@ -185,6 +230,7 @@ func parseZON(fileName string) {
 					spawnMobileCount = strings.TrimSpace(flags[3])
 					spawnMobileRoomID = strings.TrimSpace(flags[4])
 					spawnMobileType = "normal"
+					currentMobileID = spawnMobileID
 				}
 			}
 			//'F': /* follow a mobile */
@@ -197,6 +243,7 @@ func parseZON(fileName string) {
 					spawnMobileCount = strings.TrimSpace(flags[3])
 					spawnMobileRoomID = strings.TrimSpace(flags[4])
 					spawnMobileType = "follow"
+					currentMobileID = spawnMobileID
 				}
 			}
 			//'R': /* add mount for M */
@@ -209,6 +256,7 @@ func parseZON(fileName string) {
 					spawnMobileCount = strings.TrimSpace(flags[3])
 					spawnMobileRoomID = strings.TrimSpace(flags[4])
 					spawnMobileType = "mount"
+					currentMobileID = spawnMobileID
 				}
 			}
 			//'O': /* read an object */
@@ -242,7 +290,7 @@ func parseZON(fileName string) {
 					spawnItemType = "takeObject"
 				}
 			}
-			//'G': /* obj_to_char */
+			//'G': /* obj_to_char - given to the last mobile added by M/F/R */
 			//G 1 27742 0 0
 			if strings.HasPrefix(line, "G ") {
 				flags := strings.Fields(line)
@@ -250,9 +298,10 @@ func parseZON(fileName string) {
 					validData = 1
 					spawnItemID = strings.TrimSpace(flags[2])
 					spawnItemType = "ObjectToMob"
+					spawnItemMobID = currentMobileID
 				}
 			}
-			//'E': /* object to equipment list */ Line 2813
+			//'E': /* object to equipment list - equipped on the last mobile added by M/F/R */ Line 2813
 			//E 1 27723 0 17
 			if strings.HasPrefix(line, "E ") {
 				flags := strings.Fields(line)
@@ -260,6 +309,7 @@ func parseZON(fileName string) {
 					validData = 1
 					spawnItemID = strings.TrimSpace(flags[2])
 					spawnItemType = "ObjectToMobEQ"
+					spawnItemMobID = currentMobileID
 				}
 			}
 			//case 'D': /* set state of door */
@@ -301,6 +351,7 @@ func parseZON(fileName string) {
 				fmt.Println("spawnItemID: " + spawnItemID)
 				fmt.Println("spawnItemLocationID: " + spawnItemLocationID)
 				fmt.Println("spawnItemType: " + spawnItemType)
+				fmt.Println("spawnItemMobID: " + spawnItemMobID)
 				fmt.Println("spawnDoorID: " + spawnDoorID)
 				fmt.Println("spawnDoorState: " + spawnDoorState)
 			}
@@ -325,8 +376,17 @@ func parseZON(fileName string) {
 				"spawnItemID",
 				"spawnItemLocationID",
 				"spawnItemType",
+				"spawnItemMobID",
 				"spawnDoorID",
 				"spawnDoorState",
+				"multHp",
+				"multMana",
+				"multHitroll",
+				"multDamage",
+				"multArmor",
+				"multXp",
+				"multGold",
+				"multLevel",
 			}
 
 			// Check if file exists
@@ -372,8 +432,17 @@ func parseZON(fileName string) {
 				spawnItemID,
 				spawnItemLocationID,
 				spawnItemType,
+				spawnItemMobID,
 				spawnDoorID,
 				spawnDoorState,
+				strconv.Itoa(zoneMultHp),
+				strconv.Itoa(zoneMultMana),
+				strconv.Itoa(zoneMultHitroll),
+				strconv.Itoa(zoneMultDamage),
+				strconv.Itoa(zoneMultArmor),
+				strconv.Itoa(zoneMultXp),
+				strconv.Itoa(zoneMultGold),
+				strconv.Itoa(zoneMultLevel),
 			}
 
 			// Write record
@@ -404,8 +473,17 @@ func parseZON(fileName string) {
 				spawnItemID TEXT,
 				spawnItemLocationID TEXT,
 				spawnItemType TEXT,
+				spawnItemMobID TEXT,
 				spawnDoorID TEXT,
-				spawnDoorState TEXT
+				spawnDoorState TEXT,
+				multHp TEXT,
+				multMana TEXT,
+				multHitroll TEXT,
+				multDamage TEXT,
+				multArmor TEXT,
+				multXp TEXT,
+				multGold TEXT,
+				multLevel TEXT
 			);`
 
 			_, err = db.Exec(createTable)
@@ -413,11 +491,12 @@ func parseZON(fileName string) {
 				log.Fatal(err)
 			}
 
-			// Insert statement (18 columns)
+			// Insert statement (27 columns)
 			insertSQL := `
 			INSERT INTO zones VALUES (
 				?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-				?, ?, ?, ?, ?, ?, ?, ?
+				?, ?, ?, ?, ?, ?, ?, ?,
+				?, ?, ?, ?, ?, ?, ?, ?, ?
 			);`
 
 			// Convert []string → []interface{}
@@ -517,6 +596,29 @@ func parseMOB(fileName string) {
 		var attackSpell string = ""
 		var specialAttackInt int = 0
 
+		//Y mob extended line: hit_type, act2, affected_by2, immune2 (db.c Line 2289)
+		var mobHitType string = ""
+		var mobAct2Flags string = ""
+		var mobAffectedBy2Flags string = ""
+		var mobImmune2Flags string = ""
+		var mobHitTypeParsed bool = false
+
+		parseMobHitTypeLine := func(line string) {
+			flags := strings.Fields(line)
+			if len(flags) >= 4 {
+				mobHitType = strings.TrimSpace(flags[0])
+				if bitvector, ok := parseBitVector(flags[1]); ok {
+					mobAct2Flags = getAct2Flags(BitValues(bitvector, 3))
+				}
+				if bitvector, ok := parseBitVector(flags[2]); ok {
+					mobAffectedBy2Flags = getAFF2Flags(BitValues(bitvector, 7))
+				}
+				if bitvector, ok := parseBitVector(flags[3]); ok {
+					mobImmune2Flags = getImmune2Flags(BitValues(bitvector, 12))
+				}
+			}
+		}
+
 		// Split the object into individual lines
 		lines := strings.Split(string(object), "\n")
 		for _, line := range lines {
@@ -594,16 +696,15 @@ func parseMOB(fileName string) {
 				parseCount++
 				flags := strings.Fields(line) //Line aways has 4 space delimited values
 				if len(flags) >= 4 {
-					bitvector, err := strconv.ParseUint(flags[0], 10, 64)
-					if err != nil {
+					//C reads these with %ld (signed); parseBitVector masks to 32-bit two's complement
+					if bitvector, ok := parseBitVector(flags[0]); !ok {
 						actionFlags = ""
 					} else {
 						bits := BitValues(bitvector, 30)
 						actionFlags = getActionBits(bits)
 						//Look up each bit in the bitvector and print the flag name
 					}
-					bitvector, err = strconv.ParseUint(flags[1], 10, 64)
-					if err != nil {
+					if bitvector, ok := parseBitVector(flags[1]); !ok {
 						affectedByFlags = ""
 					} else {
 						bits := BitValues(bitvector, 30)
@@ -615,93 +716,108 @@ func parseMOB(fileName string) {
 					continue
 				}
 			}
-			//Parse based on mob letter
-			if mobLetter == "S" {
+			//Parse based on mob letter. S, X and Y mobs all share the level..sex lines
+			//(db.c read_mobs); X and Y add class/immune/mana/no_att + attack lines,
+			//and only Y ends with a hit_type/act2/affected_by2/immune2 line.
+			if parseCount == 7 {
+				//Capture 48 -13 -5 20d40+4300 2d8+50
+				//Level, Hitroll, Armor, hpNumDice|hpDieSize|hpAdd, damNumDice|DamDieSize|damroll
+				parseCount++
+				flags := strings.Fields(line) //Line of space delimited values
+				if len(flags) >= 5 {
+					levelFloat, _ := strconv.ParseFloat(strings.TrimSpace(flags[0]), 64)
+					hitrollFloat, _ := strconv.ParseFloat(strings.TrimSpace(flags[1]), 64)
+					armorFloat, _ := strconv.ParseFloat(strings.TrimSpace(flags[2]), 64)
+					//Zone multipliers (db.c read_mobile scales level/hitroll/armor)
+					mobLevel = strconv.FormatFloat(levelFloat*float64(zoneMultLevel)/100, 'f', -1, 64)
+					mobHitroll = strconv.FormatFloat(hitrollFloat*float64(zoneMultHitroll)/100, 'f', -1, 64)
+					mobArmor = strconv.FormatFloat(armorFloat*float64(zoneMultArmor)/100, 'f', -1, 64)
 
-			}
-			if mobLetter == "X" {
-
-			}
-			if mobLetter == "Y" {
-				//db.c Line 2205
-				if parseCount == 7 {
-					//Capture 48 -13 -5 20d40+4300 2d8+50
-					//Level, Hitroll, Armor, hpNumDice|hpDieSize|hpAdd, damNumDice|DamDieSize|damroll
-					parseCount++
-					flags := strings.Fields(line) //Line of space delimited values
-					if len(flags) >= 5 {
-						mobLevel = strings.TrimSpace(flags[0])
-						mobHitroll = strings.TrimSpace(flags[1])
-						mobArmor = strings.TrimSpace(flags[2])
-
-						//HP 20d40+4300
-						if strings.Contains(flags[3], "d") {
-							_, err := fmt.Sscanf(strings.TrimSpace(flags[3]), "%fd%f+%f", &mobHPDieNumber, &mobHPDieSize, &mobHPBaseNumber)
-							if err != nil {
-								panic(err)
-							}
+					//HP flags[3] e.g. 20d40+4300
+					if strings.Contains(flags[3], "d") {
+						_, err := fmt.Sscanf(strings.TrimSpace(flags[3]), "%fd%f+%f", &mobHPDieNumber, &mobHPDieSize, &mobHPBaseNumber)
+						if err != nil {
+							panic(err)
 						}
-						mobHPMinValue = mobHPDieNumber + mobHPBaseNumber
-						mobHPMaxValue = (mobHPDieNumber * mobHPDieSize) + mobHPBaseNumber
-						// Average of one die
-						avgDie := float64(mobHPDieSize+1) / 2.0
-						mobHPAverage = float64(mobHPDieNumber)*avgDie + float64(mobHPBaseNumber)
-						//Average x2 for sanc
-						if strings.Contains(affectedByFlags, "SANCTUARY") {
-							// substring found
-							mobHPAffective = mobHPAverage * 2
-						} else {
-							mobHPAffective = mobHPAverage
-						}
-						//Damage min, max, average per hit 2d8+50
-						if strings.Contains(flags[3], "d") {
-							_, err := fmt.Sscanf(strings.TrimSpace(flags[3]), "%fd%f+%f", &mobDamDieNumber, &mobDamDieSize, &mobDamBaseNumber)
-							if err != nil {
-								panic(err)
-							}
-						}
-						mobDamMinValue = mobDamDieNumber + mobDamBaseNumber
-						mobDamMaxValue = (mobDamDieNumber * mobDamDieSize) + mobDamBaseNumber
-						// Average of one die
-						avgDie = float64(mobDamDieSize+1) / 2.0
-						mobDamAverage = float64(mobDamDieNumber)*avgDie + float64(mobDamBaseNumber)
-						//Get attacks per round
-						if strings.Contains(affectedByFlags, "DUAL") {
-							mobHitCount = 1.3
-						}
-						//Average x2 for fury
-						if strings.Contains(affectedByFlags, "FURY") {
-							mobDamAffective = mobDamAverage * 2
-						} else {
-							mobDamAffective = mobDamAverage
-						}
-						mobDamAffective = mobHitCount * mobDamAffective
 					}
-					continue
+					mobHPMinValue = mobHPDieNumber + mobHPBaseNumber
+					mobHPMaxValue = (mobHPDieNumber * mobHPDieSize) + mobHPBaseNumber
+					// Average of one die
+					avgDie := float64(mobHPDieSize+1) / 2.0
+					mobHPAverage = float64(mobHPDieNumber)*avgDie + float64(mobHPBaseNumber)
+					//Average x2 for sanc
+					if strings.Contains(affectedByFlags, "SANCTUARY") {
+						// substring found
+						mobHPAffective = mobHPAverage * 2
+					} else {
+						mobHPAffective = mobHPAverage
+					}
+					//Scale HP by zone multiplier (db.c: max_hit *= mult_hp/100)
+					mobHPMinValue *= float64(zoneMultHp) / 100
+					mobHPMaxValue *= float64(zoneMultHp) / 100
+					mobHPAverage *= float64(zoneMultHp) / 100
+					mobHPAffective *= float64(zoneMultHp) / 100
+
+					//Damage flags[4] e.g. 2d8+50
+					if strings.Contains(flags[4], "d") {
+						_, err := fmt.Sscanf(strings.TrimSpace(flags[4]), "%fd%f+%f", &mobDamDieNumber, &mobDamDieSize, &mobDamBaseNumber)
+						if err != nil {
+							panic(err)
+						}
+					}
+					mobDamMinValue = mobDamDieNumber + mobDamBaseNumber
+					mobDamMaxValue = (mobDamDieNumber * mobDamDieSize) + mobDamBaseNumber
+					// Average of one die
+					avgDie = float64(mobDamDieSize+1) / 2.0
+					mobDamAverage = float64(mobDamDieNumber)*avgDie + float64(mobDamBaseNumber)
+					//Get attacks per round (NPC dual = 30% chance of extra attack, fight.c)
+					if strings.Contains(affectedByFlags, "DUAL") {
+						mobHitCount = 1.3
+					}
+					//Average x2 for fury
+					if strings.Contains(affectedByFlags, "FURY") {
+						mobDamAffective = mobDamAverage * 2
+					} else {
+						mobDamAffective = mobDamAverage
+					}
+					mobDamAffective = mobHitCount * mobDamAffective
+					//Scale damage by zone multiplier (db.c: dam dice/roll *= mult_damage/100)
+					mobDamMinValue *= float64(zoneMultDamage) / 100
+					mobDamMaxValue *= float64(zoneMultDamage) / 100
+					mobDamAverage *= float64(zoneMultDamage) / 100
+					mobDamAffective *= float64(zoneMultDamage) / 100
 				}
-				if parseCount == 8 {
-					//Line 2225 gold, exp
-					parseCount++
-					_, err := fmt.Sscanf(strings.TrimSpace(line), "%f %f", &mobCoins, &mobEXP)
-					if err != nil {
-						panic(err)
-					}
-					mobCoinEXP = mobCoins / 3
-					mobTotalExp = mobEXP + mobCoinEXP
+				continue
+			}
+			if parseCount == 8 {
+				//Line 2225 gold, exp
+				parseCount++
+				var goldFloat, expFloat float64
+				_, err := fmt.Sscanf(strings.TrimSpace(line), "%f %f", &goldFloat, &expFloat)
+				if err != nil {
+					panic(err)
+				}
+				mobCoins = goldFloat * float64(zoneMultGold) / 100
+				mobEXP = expFloat * float64(zoneMultXp) / 100
+				mobCoinEXP = mobCoins / 3
+				mobTotalExp = mobEXP + mobCoinEXP
+				if mobHPAffective > 0 {
 					mobExpPerHP = mobTotalExp / mobHPAffective
-					continue
 				}
-				if parseCount == 9 {
-					//Line 2231 Position, DefaultPosition, Sex - 8 8 0
-					parseCount++
-					flags := strings.Fields(line) //Line of space delimited values
-					if len(flags) >= 3 {
-						mobPosition = getPosition(strings.TrimSpace(flags[0]))
-						mobDefaultPosition = getPosition(strings.TrimSpace(flags[1]))
-						mobSex = getGender(strings.TrimSpace(flags[2]))
-					}
-					continue
+				continue
+			}
+			if parseCount == 9 {
+				//Line 2231 Position, DefaultPosition, Sex - 8 8 0
+				parseCount++
+				flags := strings.Fields(line) //Line of space delimited values
+				if len(flags) >= 3 {
+					mobPosition = getPosition(strings.TrimSpace(flags[0]))
+					mobDefaultPosition = getPosition(strings.TrimSpace(flags[1]))
+					mobSex = getGender(strings.TrimSpace(flags[2]))
 				}
+				continue
+			}
+			if mobLetter == "X" || mobLetter == "Y" {
 				if parseCount == 10 {
 					//Line 2242 class, immune, mobManaDieNumber|D|mobManaDieSize+mobHPBaseNumber, NoSpecialAttackLines
 					// 62 0 0d0+0 0
@@ -710,8 +826,7 @@ func parseMOB(fileName string) {
 					if len(flags) >= 4 {
 						mobClass = getMobClass(strings.TrimSpace(flags[0]))
 						//Get immunity list from bit vector
-						bitvector, err := strconv.ParseUint(flags[1], 10, 64)
-						if err != nil {
+						if bitvector, ok := parseBitVector(flags[1]); !ok {
 							mobImmune = ""
 						} else {
 							bits := BitValues(bitvector, 32)
@@ -722,23 +837,24 @@ func parseMOB(fileName string) {
 						NoSpecialAttackLines = strings.TrimSpace(flags[3])
 					}
 
-					//Skip over parsecount 11 if no special attack lines exist
-					if NoSpecialAttackLines == "0" {
+					//Skip over parsecount 11 if no special attack lines exist (Y only:
+					//the next line is then the hit_type line, handled at parseCount 12)
+					if NoSpecialAttackLines == "0" && mobLetter == "Y" {
 						parseCount++
-					} else {
+					} else if NoSpecialAttackLines != "0" {
 						//Convert string to int
 						specialAttackInt, err = strconv.Atoi(NoSpecialAttackLines)
 						if err != nil {
-							// handle invalid input
+							specialAttackInt = 0
 						}
 					}
 					continue
 				}
 				if parseCount == 11 {
-					specialAttackLoopCount++
-					//Parse Special attack lines Linve db.c 2256
+					//Parse Special attack lines db.c 2256
 					//att_type, att_target, att_percent, att_spell - 6 1 5 0
-					if specialAttackInt >= specialAttackLoopCount {
+					if specialAttackLoopCount < specialAttackInt {
+						specialAttackLoopCount++
 						flags := strings.Fields(line) //Line of space delimited values
 						if len(flags) >= 4 {
 							attackType = attackType + " " + getMobSpecialAttackType(strings.TrimSpace(flags[0]))
@@ -746,6 +862,11 @@ func parseMOB(fileName string) {
 							attackPercent = attackPercent + " " + strings.TrimSpace(flags[2])
 							attackSpell = attackSpell + " " + getSpell(strings.TrimSpace(flags[3]))
 						}
+					} else if mobLetter == "Y" && !mobHitTypeParsed {
+						//No more attacks: this line is hit_type, act2, affected_by2, immune2
+						parseMobHitTypeLine(line)
+						mobHitTypeParsed = true
+						parseCount++
 					} else {
 						attackType = strings.TrimSpace(attackType)
 						attackTarget = strings.TrimSpace(attackTarget)
@@ -753,19 +874,16 @@ func parseMOB(fileName string) {
 						attackSpell = strings.TrimSpace(attackSpell)
 
 						parseCount++
-						continue
 					}
-				}
-				if parseCount == 12 {
-					//hit_type, act2, affected_by2, immune2
-					//0 0 0 62
-					flags := strings.Fields(line) //Line of space delimited values
-					if len(flags) >= 4 {
-
-					}
-					parseCount++
 					continue
 				}
+			}
+			if mobLetter == "Y" && parseCount == 12 && !mobHitTypeParsed {
+				//hit_type, act2, affected_by2, immune2 (no_att was 0 so we jumped here)
+				parseMobHitTypeLine(line)
+				mobHitTypeParsed = true
+				parseCount++
+				continue
 			}
 		}
 		//Make sure item number is actually a number and confirm its not 0 EOF
@@ -851,6 +969,11 @@ func parseMOB(fileName string) {
 					fmt.Println("attackPercent: " + attackPercent)
 					fmt.Println("attackSpell: " + attackSpell)
 
+					fmt.Println("mobHitType: " + mobHitType)
+					fmt.Println("mobAct2Flags: " + mobAct2Flags)
+					fmt.Println("mobAffectedBy2Flags: " + mobAffectedBy2Flags)
+					fmt.Println("mobImmune2Flags: " + mobImmune2Flags)
+
 					fmt.Println("=========================================")
 				}
 				// Write data to a CSV file =========================================================
@@ -910,6 +1033,11 @@ func parseMOB(fileName string) {
 					"attackTarget",
 					"attackPercent",
 					"attackSpell",
+
+					"mobHitType",
+					"mobAct2Flags",
+					"mobAffectedBy2Flags",
+					"mobImmune2Flags",
 				}
 
 				// Create file if it doesn't exist
@@ -996,6 +1124,11 @@ func parseMOB(fileName string) {
 					attackTarget,
 					attackPercent,
 					attackSpell,
+
+					mobHitType,
+					mobAct2Flags,
+					mobAffectedBy2Flags,
+					mobImmune2Flags,
 				}
 
 				// Write CSV record
@@ -1058,7 +1191,11 @@ func parseMOB(fileName string) {
 					attackType TEXT,
 					attackTarget TEXT,
 					attackPercent TEXT,
-					attackSpell TEXT
+					attackSpell TEXT,
+					mobHitType TEXT,
+					mobAct2Flags TEXT,
+					mobAffectedBy2Flags TEXT,
+					mobImmune2Flags TEXT
 				);`
 
 				_, err = db.Exec(createTable)
@@ -1066,14 +1203,14 @@ func parseMOB(fileName string) {
 					log.Fatal(err)
 				}
 
-				// Insert statement
+				// Insert statement (48 columns)
 				insertSQL := `
 				INSERT INTO mobs VALUES (
 					?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 					?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 					?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 					?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-					?, ?, ?, ?
+					?, ?, ?, ?, ?, ?, ?, ?
 				);`
 
 				// Convert record → interface{}
@@ -1145,10 +1282,6 @@ func parseOBJ(fileName string) {
 		var recipeRequires1 string = ""
 		var recipeRequires2 string = ""
 		var recipeRequires3 string = ""
-		var aqOrderRequires1 string = ""
-		var aqOrderRequires2 string = ""
-		var aqOrderRequires3 string = ""
-		var aqOrderRequires4 string = ""
 		var spellLevel string = ""
 		var spell string = ""
 		var chargesCurrent string = ""
@@ -1175,9 +1308,6 @@ func parseOBJ(fileName string) {
 		var treasureCoins string = ""
 		var picksCurrent string = ""
 		var picksMax string = ""
-		var boardReadLvl string = ""
-		var boardWriteLvl string = ""
-		var boardRemoveLvl string = ""
 		var subclassPointValue string = ""
 
 		// Split the object into individual lines
@@ -1268,27 +1398,21 @@ func parseOBJ(fileName string) {
 					//Lookup extra flags from bitvector
 					if flags[1] == "0" {
 						extraFlags = ""
+					} else if bitvector, ok := parseBitVector(flags[1]); !ok {
+						extraFlags = ""
 					} else {
-						bitvector, err := strconv.ParseUint(flags[1], 10, 64)
-						if err != nil {
-							extraFlags = ""
-						} else {
-							bits := BitValues(bitvector, 30)
-							extraFlags = getExtraFlags(bits)
-							//Look up each bit in the bitvector and print the flag name
-						}
+						bits := BitValues(bitvector, 30)
+						extraFlags = getExtraFlags(bits)
+						//Look up each bit in the bitvector and print the flag name
 					}
 					//Lookup wear flags from bitvector
 					if flags[2] == "0" {
 						wearFlags = ""
+					} else if bitvector, ok := parseBitVector(flags[2]); !ok {
+						wearFlags = ""
 					} else {
-						bitvector, err := strconv.ParseUint(flags[2], 10, 64)
-						if err != nil {
-							wearFlags = ""
-						} else {
-							bits := BitValues(bitvector, 21)
-							wearFlags = getWearFlags(bits)
-						}
+						bits := BitValues(bitvector, 21)
+						wearFlags = getWearFlags(bits)
 					}
 				}
 				parseCount++
@@ -1318,12 +1442,6 @@ func parseOBJ(fileName string) {
 					recipeRequires1 = value1
 					recipeRequires2 = value2
 					recipeRequires3 = value3
-				case "AQ_ORDER":
-					//send_to_char("For AQ Orders: <Requires> <Requires> <Requires> <Requires> (-1 for none)\n\r", ch);
-					aqOrderRequires1 = value0
-					aqOrderRequires2 = value1
-					aqOrderRequires3 = value2
-					aqOrderRequires4 = value3
 				case "SCROLL", "POTION":
 					//send_to_char("For Scrolls and Potions: <Level> <Spell1|0> <Spell2|0> <Spell3|0>\n\r", ch);
 					spellLevel = value0
@@ -1395,11 +1513,6 @@ func parseOBJ(fileName string) {
 					//send_to_char("For lockpicks: <# picks> <max # picks> <unused> <unused>\n\r", ch);
 					picksCurrent = value0
 					picksMax = value1
-				case "BOARD":
-					//send_to_char("For boards: <min read level> <min write level> <min remove level> <unused>\n\r", ch);
-					boardReadLvl = value0
-					boardWriteLvl = value1
-					boardRemoveLvl = value2
 				case "SC_TOKEN":
 					//send_to_char("For subclass tokens: <Subclass Points Given> <unused> <unused> <unused>\n\r", ch);
 					subclassPointValue = value0
@@ -1480,8 +1593,7 @@ func parseOBJ(fileName string) {
 				if captureNext == "true" {
 					captureNext = "false"
 					//Lookup objectAFF flags from bitvector
-					bitvector, err := strconv.ParseUint(strings.TrimSpace(line), 10, 64)
-					if err != nil {
+					if bitvector, ok := parseBitVector(line); !ok {
 						objAffFlags = ""
 					} else {
 						bits := BitValues(bitvector, 30)
@@ -1498,8 +1610,7 @@ func parseOBJ(fileName string) {
 				if captureNext == "true" {
 					captureNext = "false"
 					//Lookup objectAFF2 flags from bitvector
-					bitvector, err := strconv.ParseUint(strings.TrimSpace(line), 10, 64)
-					if err != nil {
+					if bitvector, ok := parseBitVector(line); !ok {
 						objAffFlags2 = ""
 					} else {
 						bits := BitValues(bitvector, 7)
@@ -1531,26 +1642,20 @@ func parseOBJ(fileName string) {
 						//Get extra flags 2 bitvector
 						if flags[0] == "0" {
 							extraFlags2 = ""
+						} else if bitvector, ok := parseBitVector(flags[0]); !ok {
+							extraFlags2 = ""
 						} else {
-							bitvector, err := strconv.ParseUint(flags[0], 10, 64)
-							if err != nil {
-								extraFlags2 = ""
-							} else {
-								bits := BitValues(bitvector, 12)
-								extraFlags2 = getExtraFlags2(bits)
-							}
+							bits := BitValues(bitvector, 12)
+							extraFlags2 = getExtraFlags2(bits)
 						}
 						//Lookup subclass restriction flags
 						if flags[1] == "0" {
 							subclassFlags = ""
+						} else if bitvector, ok := parseBitVector(flags[1]); !ok {
+							subclassFlags = ""
 						} else {
-							bitvector, err := strconv.ParseUint(flags[1], 10, 64)
-							if err != nil {
-								subclassFlags = ""
-							} else {
-								bits := BitValues(bitvector, 20)
-								subclassFlags = getSubclassFlags(bits)
-							}
+							bits := BitValues(bitvector, 20)
+							subclassFlags = getSubclassFlags(bits)
 						}
 						//Lookup material flags (UNUSED in Ronin)
 						materialFlags = strings.TrimSpace(flags[2])
@@ -1601,26 +1706,17 @@ func parseOBJ(fileName string) {
 				}
 				AFFmodifier = affMod2int
 			}
-			//Calculate min damage
+			//Calculate min damage (random damroll can roll 0, so no bonus here)
 			damageMinInt = diceNumberInt + AFFmodifier
-			//Check for RANDOM flags +0-2 damroll
-			if Affect0 == "DAMROLL" {
-				matchedRandom, _ := regexp.MatchString(`(?:RANDOM\s|RANDOM$|RANDOM_0)`, extraFlags2)
-				if matchedRandom {
-					AFFmodifier = AFFmodifier + 2
-				}
+			//Add max random roll to the DAMROLL slot if it is randomized
+			if Affect0 == "DAMROLL" && hasRandomAffFlag(extraFlags2, 0) {
+				AFFmodifier += float64(maxRandomAffBonus("DAMROLL"))
 			}
-			if Affect1 == "DAMROLL" {
-				matchedRandom, _ := regexp.MatchString(`(?:RANDOM\s|RANDOM$|RANDOM_1)`, extraFlags2)
-				if matchedRandom {
-					AFFmodifier = AFFmodifier + 2
-				}
+			if Affect1 == "DAMROLL" && hasRandomAffFlag(extraFlags2, 1) {
+				AFFmodifier += float64(maxRandomAffBonus("DAMROLL"))
 			}
-			if Affect2 == "DAMROLL" {
-				matchedRandom, _ := regexp.MatchString(`(?:RANDOM\s|RANDOM$|RANDOM_2)`, extraFlags2)
-				if matchedRandom {
-					AFFmodifier = AFFmodifier + 2
-				}
+			if Affect2 == "DAMROLL" && hasRandomAffFlag(extraFlags2, 2) {
+				AFFmodifier += float64(maxRandomAffBonus("DAMROLL"))
 			}
 			//Calculate damage numbers
 
@@ -1634,84 +1730,22 @@ func parseOBJ(fileName string) {
 			damageMax = strconv.FormatFloat(damageMaxInt, 'f', -1, 64)
 			damageAve = strconv.FormatFloat(damageAveInt, 'f', -1, 64)
 		}
-		//Add max possible bonus from RANDOM flags to all AFF modifiers
-		switch Affect0 {
-		case "DAMROLL", "HITROLL", "HP_REGEN", "MANA_REGEN", "ARMOR", "MANA", "HIT", "MOVE":
-			matchedRandom, _ := regexp.MatchString(`(?:RANDOM\s|RANDOM$|RANDOM_2)`, extraFlags2)
-			if matchedRandom {
-				tmp, err := strconv.Atoi(AffectModifier0)
-				if err == nil {
-					switch Affect0 {
-					case "DAMROLL", "HITROLL": //Add +2 for random damage
-						tmp = tmp + 2
-						AffectModifier0 = strconv.Itoa(tmp)
-					case "HP_REGEN": //Add +30 for HP REGEN
-						tmp = tmp + 30
-						AffectModifier0 = strconv.Itoa(tmp)
-					case "MANA_REGEN": //Add +6 for MANA REGEN
-						tmp = tmp + 6
-						AffectModifier0 = strconv.Itoa(tmp)
-					case "ARMOR": //Subtract 10 for ARMOR
-						tmp = tmp - 10
-						AffectModifier0 = strconv.Itoa(tmp)
-					case "MANA", "HIT", "MOVE": //Add 100 for MANA HP MANA
-						tmp = tmp + 100
-						AffectModifier0 = strconv.Itoa(tmp)
-					}
-				}
+		//Add the maximum random roll (db.c read_object) to each randomized AFF modifier
+		affectTypes := []string{Affect0, Affect1, Affect2}
+		affectModifiers := []*string{&AffectModifier0, &AffectModifier1, &AffectModifier2}
+		for slot := 0; slot < 3; slot++ {
+			if !hasRandomAffFlag(extraFlags2, slot) {
+				continue
 			}
-		}
-		switch Affect1 {
-		case "DAMROLL", "HITROLL", "HP_REGEN", "MANA_REGEN", "ARMOR", "MANA", "HIT", "MOVE":
-			matchedRandom, _ := regexp.MatchString(`(?:RANDOM\s|RANDOM$|RANDOM_2)`, extraFlags2)
-			if matchedRandom {
-				tmp, err := strconv.Atoi(AffectModifier1)
-				if err == nil {
-					switch Affect1 {
-					case "DAMROLL", "HITROLL": //Add +2 for random damage
-						tmp = tmp + 2
-						AffectModifier1 = strconv.Itoa(tmp)
-					case "HP_REGEN": //Add +30 for HP REGEN
-						tmp = tmp + 30
-						AffectModifier1 = strconv.Itoa(tmp)
-					case "MANA_REGEN": //Add +6 for MANA REGEN
-						tmp = tmp + 6
-						AffectModifier1 = strconv.Itoa(tmp)
-					case "ARMOR": //Subtract 10 for ARMOR
-						tmp = tmp - 10
-						AffectModifier1 = strconv.Itoa(tmp)
-					case "MANA", "HIT", "MOVE": //Add 100 for MANA HP MANA
-						tmp = tmp + 100
-						AffectModifier1 = strconv.Itoa(tmp)
-					}
-				}
+			bonus := maxRandomAffBonus(affectTypes[slot])
+			if bonus == 0 {
+				continue
 			}
-		}
-		switch Affect2 {
-		case "DAMROLL", "HITROLL", "HP_REGEN", "MANA_REGEN", "ARMOR", "MANA", "HIT", "MOVE":
-			matchedRandom, _ := regexp.MatchString(`(?:RANDOM\s|RANDOM$|RANDOM_2)`, extraFlags2)
-			if matchedRandom {
-				tmp, err := strconv.Atoi(AffectModifier2)
-				if err == nil {
-					switch Affect2 {
-					case "DAMROLL", "HITROLL": //Add +2 for random damage
-						tmp = tmp + 2
-						AffectModifier2 = strconv.Itoa(tmp)
-					case "HP_REGEN": //Add +30 for HP REGEN
-						tmp = tmp + 30
-						AffectModifier2 = strconv.Itoa(tmp)
-					case "MANA_REGEN": //Add +6 for MANA REGEN
-						tmp = tmp + 6
-						AffectModifier2 = strconv.Itoa(tmp)
-					case "ARMOR": //Subtract 10 for ARMOR
-						tmp = tmp - 10
-						AffectModifier2 = strconv.Itoa(tmp)
-					case "MANA", "HIT", "MOVE": //Add 100 for MANA HP MANA
-						tmp = tmp + 100
-						AffectModifier2 = strconv.Itoa(tmp)
-					}
-				}
+			tmp, err := strconv.Atoi(*affectModifiers[slot])
+			if err != nil {
+				continue
 			}
+			*affectModifiers[slot] = strconv.Itoa(tmp + bonus)
 		}
 		//Make sure item number is actually a number and confirm its not 0 EOF
 		if _, err := strconv.Atoi(itemNumber); err == nil {
@@ -1751,10 +1785,6 @@ func parseOBJ(fileName string) {
 					fmt.Println("RecipeRequires1: " + recipeRequires1)
 					fmt.Println("RecipeRequires2: " + recipeRequires2)
 					fmt.Println("RecipeRequires3: " + recipeRequires3)
-					fmt.Println("aqOrderRequires1: " + aqOrderRequires1)
-					fmt.Println("aqOrderRequires2: " + aqOrderRequires2)
-					fmt.Println("aqOrderRequires3: " + aqOrderRequires3)
-					fmt.Println("aqOrderRequires4: " + aqOrderRequires4)
 					fmt.Println("maxContains: " + maxContains)
 					fmt.Println("currentContains: " + currentContains)
 					fmt.Println("liquidType: " + liquidType)
@@ -1786,9 +1816,6 @@ func parseOBJ(fileName string) {
 					fmt.Println("treasureCoins: " + treasureCoins)
 					fmt.Println("subclassPointValue: " + subclassPointValue)
 					fmt.Println("LoadRate: " + loadrate)
-					fmt.Println("boardReadLvl: " + boardReadLvl)
-					fmt.Println("boardWriteLvl: " + boardWriteLvl)
-					fmt.Println("boardRemoveLvl: " + boardRemoveLvl)
 					if materialFlags != "0" {
 						fmt.Println("MaterialFlags: " + materialFlags)
 					}
@@ -1805,7 +1832,6 @@ func parseOBJ(fileName string) {
 					"value0", "value1", "value2", "value3",
 					"lightColor", "lightType", "lightHours",
 					"recipeCreates", "recipeRequires1", "recipeRequires2", "recipeRequires3",
-					"aqOrderRequires1", "aqOrderRequires2", "aqOrderRequires3", "aqOrderRequires4",
 					"maxContains", "currentContains", "liquidType", "foodSatiation", "poisoned",
 					"lockType", "assignedKey", "keyType", "picksCurrent", "picksMax",
 					"affAC", "spell", "spellLevel", "chargesMax", "chargesCurrent",
@@ -1813,7 +1839,7 @@ func parseOBJ(fileName string) {
 					"damageMin", "damageMax", "damageAve",
 					"gunLicense", "bulletsLeft", "gunNumber",
 					"weight", "cost", "rent", "treasureCoins", "subclassPointValue",
-					"loadrate", "boardReadLvl", "boardWriteLvl", "boardRemoveLvl", "objTimer",
+					"loadrate", "objTimer",
 				}
 
 				// Create file if not exists
@@ -1852,7 +1878,6 @@ func parseOBJ(fileName string) {
 					value0, value1, value2, value3,
 					lightColor, lightType, lightHours,
 					recipeCreates, recipeRequires1, recipeRequires2, recipeRequires3,
-					aqOrderRequires1, aqOrderRequires2, aqOrderRequires3, aqOrderRequires4,
 					maxContains, currentContains, liquidType, foodSatiation, poisoned,
 					lockType, assignedKey, keyType, picksCurrent, picksMax,
 					affAC, spell, spellLevel, chargesMax, chargesCurrent,
@@ -1860,7 +1885,7 @@ func parseOBJ(fileName string) {
 					damageMin, damageMax, damageAve,
 					gunLicense, bulletsLeft, gunNumber,
 					weight, cost, rent, treasureCoins, subclassPointValue,
-					loadrate, boardReadLvl, boardWriteLvl, boardRemoveLvl, objTimer,
+					loadrate, objTimer,
 				}
 
 				if err := writer.Write(record); err != nil {
@@ -1906,10 +1931,6 @@ func parseOBJ(fileName string) {
 					recipeRequires1 TEXT,
 					recipeRequires2 TEXT,
 					recipeRequires3 TEXT,
-					aqOrderRequires1 TEXT,
-					aqOrderRequires2 TEXT,
-					aqOrderRequires3 TEXT,
-					aqOrderRequires4 TEXT,
 					maxContains TEXT,
 					currentContains TEXT,
 					liquidType TEXT,
@@ -1941,9 +1962,6 @@ func parseOBJ(fileName string) {
 					treasureCoins TEXT,
 					subclassPointValue TEXT,
 					loadrate TEXT,
-					boardReadLvl TEXT,
-					boardWriteLvl TEXT,
-					boardRemoveLvl TEXT,
 					objTimer TEXT
 				);`
 
@@ -1952,8 +1970,8 @@ func parseOBJ(fileName string) {
 					log.Fatal(err)
 				}
 
-				// 🔴 IMPORTANT: placeholders MUST match len(record) = 66
-				placeholders := make([]string, 66)
+				// 🔴 IMPORTANT: placeholders MUST match len(record)
+				placeholders := make([]string, len(record))
 				for i := range placeholders {
 					placeholders[i] = "?"
 				}
@@ -1977,6 +1995,41 @@ func parseOBJ(fileName string) {
 		}
 	}
 }
+
+// maxRandomAffBonus returns the maximum roll the MUD can add to an affect
+// modifier when the item carries a RANDOM flag (db.c read_object, "If RANDOM
+// flag, assign random stats"). Returns 0 for types that are never randomized.
+func maxRandomAffBonus(affType string) int {
+	switch affType {
+	case "MOVE": // mod = number(1,100), unweighted
+		return 100
+	case "HIT", "MANA": // mod = i when i <= 50, else 0
+		return 50
+	case "HP_REGEN": // weighted distribution 0-30
+		return 30
+	case "MANA_REGEN": // weighted distribution 0-6
+		return 6
+	case "HITROLL", "DAMROLL": // weighted distribution 0-2
+		return 2
+	case "ARMOR": // weighted distribution -10..0, max roll is 0
+		return 0
+	default:
+		return 0
+	}
+}
+
+// hasRandomAffFlag reports whether the MUD randomizes affect slot (0-2) for an
+// item with these extra_flags2 names (db.c read_object): ITEM_RANDOM
+// ("RANDOM") randomizes every slot, ITEM_RANDOM_AFFj ("RANDOM_j") only slot j.
+func hasRandomAffFlag(extraFlags2 string, slot int) bool {
+	for _, f := range strings.Fields(extraFlags2) {
+		if f == "RANDOM" || f == fmt.Sprintf("RANDOM_%d", slot) {
+			return true
+		}
+	}
+	return false
+}
+
 func getResetMode(mode string) string {
 	switch mode {
 	case "0":
@@ -2435,6 +2488,58 @@ func getSpell(spellNum string) string {
 		return "remove_poison"
 	case "44":
 		return "sense_life"
+	case "45":
+		return "sneak"
+	case "46":
+		return "hide"
+	case "47":
+		return "steal"
+	case "48":
+		return "backstab"
+	case "49":
+		return "pick_lock"
+	case "50":
+		return "kick"
+	case "51":
+		return "bash"
+	case "52":
+		return "rescue"
+	case "53":
+		return "block"
+	case "54":
+		return "knock"
+	case "55":
+		return "punch"
+	case "56":
+		return "parry"
+	case "57":
+		return "dual"
+	case "58":
+		return "throw"
+	case "59":
+		return "dodge"
+	case "60":
+		return "peek"
+	case "61":
+		return "butcher"
+	case "62":
+		return "trap"
+	case "63":
+		return "disarm"
+	case "64":
+		return "subdue"
+	case "65":
+		return "circle"
+	case "66":
+		return "triple"
+	case "67":
+		return "ambush"
+	case "68":
+		return "spin_kick"
+	case "69":
+		return "assault"
+	case "70":
+		return "disembowel"
 	case "71":
 		return "identify"
 	case "72":
@@ -2533,10 +2638,20 @@ func getSpell(spellNum string) string {
 		return "locate_character"
 	case "119":
 		return "super_harm"
+	case "120":
+		return "pummel"
+	case "121":
+		return "coin_toss"
 	case "122":
 		return "great_mana"
+	case "123":
+		return "smell_fartmouth"
 	case "124":
 		return "perceive"
+	case "125":
+		return "pray"
+	case "126":
+		return "assassinate"
 	case "127":
 		return "haste"
 	case "128":
@@ -2545,12 +2660,16 @@ func getSpell(spellNum string) string {
 		return "dispel_magic"
 	case "130":
 		return "conflagration"
+	case "131":
+		return ""
 	case "132":
 		return "convergence"
 	case "133":
 		return "enchant_armour"
 	case "134":
 		return "disintegrate"
+	case "135":
+		return "hidden_blade"
 	case "136":
 		return "vampiric_touch"
 	case "137":
@@ -2567,10 +2686,16 @@ func getSpell(spellNum string) string {
 		return "disenchant"
 	case "143":
 		return "petrify"
+	case "144":
+		return "taunt"
 	case "145":
 		return "protection_from_good"
 	case "146":
 		return "remove_improved_invisibility"
+	case "147":
+		return ""
+	case "148":
+		return "quad"
 	case "149":
 		return "quick"
 	case "150":
@@ -2579,20 +2704,74 @@ func getSpell(spellNum string) string {
 		return "rush"
 	case "152":
 		return "blood_lust"
+	case "153":
+		return "scan"
 	case "154":
 		return "mystic_swiftness"
+	case "155":
+		return ""
+	case "156":
+		return ""
+	case "157":
+		return ""
+	case "158":
+		return ""
+	case "159":
+		return ""
+	case "160":
+		return ""
+	case "161":
+		return ""
+	case "162":
+		return ""
+	case "163":
+		return "twist"
+	case "164":
+		return "cunning"
 	case "165":
 		return "wind_slash"
+	case "166":
+		return ""
+	case "167":
+		return ""
+	case "168":
+		return ""
+	case "169":
+		return ""
+	case "170":
+		return ""
+	case "171":
+		return ""
 	case "172":
 		return "debilitate"
+	case "173":
+		return "mana_heal"
+	case "174":
+		return "clobber"
 	case "175":
 		return "blur"
+	case "176":
+		return ""
+	case "177":
+		return "tranquility"
+	case "178":
+		return "vehemence"
 	case "179":
 		return "tremor"
 	case "180":
 		return "shadow_wraith"
 	case "181":
 		return "devastation"
+	case "182":
+		return ""
+	case "183":
+		return "snipe"
+	case "184":
+		return "riposte"
+	case "185":
+		return "trophy"
+	case "186":
+		return "frenzy"
 	case "187":
 		return "power_of_faith"
 	case "188":
@@ -2613,10 +2792,28 @@ func getSpell(spellNum string) string {
 		return "ethereal_nature"
 	case "196":
 		return "engage"
+	case "197":
+		return "mantra"
+	case "198":
+		return "banzai"
+	case "199":
+		return "headbutt"
+	case "201":
+		return "maim"
 	case "202":
 		return "aid"
+	case "203":
+		return ""
+	case "204":
+		return "shadowstep"
+	case "205":
+		return "batter"
 	case "206":
 		return "desecrate"
+	case "207":
+		return "defend"
+	case "208":
+		return "hostile"
 	case "209":
 		return "rimefang"
 	case "210":
@@ -2625,26 +2822,68 @@ func getSpell(spellNum string) string {
 		return "blackmantle"
 	case "212":
 		return "divine_wind"
+	case "213":
+		return "zeal"
+	case "214":
+		return ""
+	case "215":
+		return "flank"
 	case "216":
 		return "rejuvenation"
 	case "217":
 		return "wall_of_thorns"
 	case "218":
 		return "meteor"
+	case "219":
+		return "berserk"
+	case "220":
+		return "awareness"
+	case "221":
+		return "feint"
+	case "222":
+		return "smite"
+	case "223":
+		return "camp"
 	case "224":
 		return "luck"
 	case "225":
 		return "warchant"
 	case "226":
 		return "rally"
+	case "227":
+		return "evasion"
+	case "228":
+		return "tiger_kick"
+	case "229":
+		return "trip"
+	case "230":
+		return "dirty_tricks"
+	case "231":
+		return ""
+	case "232":
+		return "trusty_steed"
+	case "233":
+		return "backfist"
+	case "234":
+		return ""
+	case "235":
+		return "war_chant_debuff"
 	case "236":
 		return "cloud_of_confusion"
+	case "237":
+		return "lunge"
 	case "238":
 		return "rage"
 	case "239":
 		return "righteousness"
+	case "240":
+		return "protect"
 	case "241":
 		return "wrath_of_ancients"
+	case "242":
+		return "victimize"
+	case "243":
+		return "meditate"
 	case "244":
 		return "divine_hammer"
 	case "245":
@@ -2665,6 +2904,8 @@ func getSpell(spellNum string) string {
 		return "blade_barrier"
 	case "253":
 		return "might"
+	case "254":
+		return "shapeshift"
 	default:
 		return "UNKNOWN: " + spellNum
 	}
@@ -2674,80 +2915,78 @@ func getLiquidType(liquidType string) string {
 	case "0":
 		return "water"
 	case "1":
-		return "water"
-	case "2":
 		return "beer"
-	case "3":
+	case "2":
 		return "wine"
+	case "3":
+		return "ale"
 	case "4":
-		return "ale"
+		return "dark ale"
 	case "5":
-		return "ale"
-	case "6":
 		return "whisky"
-	case "7":
+	case "6":
 		return "lemonade"
-	case "8":
+	case "7":
 		return "firebreather"
-	case "9":
+	case "8":
 		return "local"
+	case "9":
+		return "slime"
 	case "10":
-		return "juice"
-	case "11":
 		return "milk"
-	case "12":
+	case "11":
 		return "tea"
-	case "13":
+	case "12":
 		return "coffee"
-	case "14":
+	case "13":
 		return "blood"
+	case "14":
+		return "salt water"
 	case "15":
-		return "salt"
+		return "coke"
 	case "16":
-		return "cola"
-	case "17":
 		return "stout"
-	case "18":
+	case "17":
 		return "vodka"
-	case "19":
+	case "18":
 		return "rum"
-	case "20":
+	case "19":
 		return "liquor"
-	case "21":
+	case "20":
 		return "champagne"
-	case "22":
+	case "21":
 		return "bourbon"
-	case "23":
+	case "22":
 		return "tequila"
-	case "24":
+	case "23":
 		return "cider"
-	case "25":
+	case "24":
 		return "urine"
-	case "26":
+	case "25":
 		return "gin"
-	case "27":
+	case "26":
 		return "merlot"
-	case "28":
+	case "27":
 		return "schnapps"
-	case "29":
+	case "28":
 		return "moonshine"
-	case "30":
+	case "29":
 		return "pus"
-	case "31":
+	case "30":
 		return "sherbet"
-	case "32":
+	case "31":
 		return "cognac"
-	case "33":
+	case "32":
 		return "brandy"
-	case "34":
+	case "33":
 		return "scotch"
-	case "35":
+	case "34":
 		return "kefir"
-	case "36":
+	case "35":
 		return "ouzo"
-	case "37":
+	case "36":
 		return "saki"
-	case "38":
+	case "37":
 		return "lager"
 	default:
 		return "UNKNOWN"
@@ -3022,7 +3261,7 @@ func getApplyType(ApplyTypeCode string) string {
 	case "10":
 		return "APPLY_10"
 	case "11":
-		return "APPLY_10"
+		return "APPLY_11"
 	case "12":
 		return "MANA"
 	case "13":
@@ -3107,6 +3346,8 @@ func getApplyType(ApplyTypeCode string) string {
 		return "HP_REGEN"
 	case "53":
 		return "MANA_REGEN"
+	case "54":
+		return "DMG_BONUS_PCT"
 	default:
 		return "UNKNOWN: " + ApplyTypeCode
 	}
@@ -3170,7 +3411,7 @@ func getAffectedByBits(bits []int) string {
 			affectedByFlags = affectedByFlags + " " + "GROUP"
 		}
 		if i == 9 && v == 1 {
-			affectedByFlags = affectedByFlags + " " + "CONFUSION"
+			affectedByFlags = affectedByFlags + " " + "DETECT-POISON"
 		}
 		if i == 10 && v == 1 {
 			affectedByFlags = affectedByFlags + " " + "CURSE"
@@ -3364,7 +3605,7 @@ func getAffFlags(bits []int) string {
 			afFlags = afFlags + " " + "GROUP"
 		}
 		if i == 9 && v == 1 {
-			afFlags = afFlags + " " + "CONFUSION"
+			afFlags = afFlags + " " + "DETECT-POISON"
 		}
 		if i == 10 && v == 1 {
 			afFlags = afFlags + " " + "CURSE"
@@ -3429,6 +3670,42 @@ func getAffFlags(bits []int) string {
 	}
 	afFlags = strings.TrimSpace(afFlags)
 	return afFlags
+}
+func getAct2Flags(bits []int) string {
+	var act2Flags string = ""
+	for i, v := range bits {
+		if i == 0 && v == 1 {
+			act2Flags = act2Flags + " " + "NO-TOKEN"
+		}
+		if i == 1 && v == 1 {
+			act2Flags = act2Flags + " " + "IGNORE-SPHERE"
+		}
+	}
+	act2Flags = strings.TrimSpace(act2Flags)
+	return act2Flags
+}
+func getImmune2Flags(bits []int) string {
+	var immune2Names []string = []string{
+		"LOCATE",
+		"COLD",
+		"SOUND",
+		"CHEMICAL",
+		"ACID",
+		"FEAR",
+		"BASH",
+		"CIRCLE",
+		"TAUNT",
+		"STEAL",
+		"CURSE",
+		"HOLD",
+	}
+	var immune2Flags string
+	for i, v := range bits {
+		if v == 1 && i < len(immune2Names) {
+			immune2Flags += " " + immune2Names[i]
+		}
+	}
+	return strings.TrimSpace(immune2Flags)
 }
 func getSubclassFlags(bits []int) string {
 	var subclassFlags string = ""
@@ -3522,7 +3799,7 @@ func getExtraFlags2(bits []int) string {
 			extraFlags2 = extraFlags2 + " " + "NO_TAKE_MOB"
 		}
 		if i == 7 && v == 1 {
-			extraFlags2 = extraFlags2 + " " + "NO_SCAVENGE"
+			extraFlags2 = extraFlags2 + " " + "EXTRA2_128"
 		}
 		if i == 8 && v == 1 {
 			extraFlags2 = extraFlags2 + " " + "NO_LOCATE"
@@ -3715,6 +3992,16 @@ func BitValues(x uint64, width int) []int {
 		}
 	}
 	return bits
+}
+
+// C writes bitvectors with %d/%ld (signed); values with bit 31 set appear
+// negative in the file. Parse as signed and mask to 32-bit two's complement.
+func parseBitVector(s string) (uint64, bool) {
+	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return uint64(v) & 0xFFFFFFFF, true
 }
 func getItemType(typeFlag string) string {
 	switch typeFlag {
