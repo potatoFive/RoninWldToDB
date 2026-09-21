@@ -721,17 +721,48 @@ func parseMOB(fileName string) {
 			//and only Y ends with a hit_type/act2/affected_by2/immune2 line.
 			if parseCount == 7 {
 				//Capture 48 -13 -5 20d40+4300 2d8+50
-				//Level, Hitroll, Armor, hpNumDice|hpDieSize|hpAdd, damNumDice|DamDieSize|damroll
+				//Level, Hitroll offset, Armor, hpNumDice|hpDieSize|hpAdd, damNumDice|DamDieSize|damroll
 				parseCount++
 				flags := strings.Fields(line) //Line of space delimited values
 				if len(flags) >= 5 {
 					levelFloat, _ := strconv.ParseFloat(strings.TrimSpace(flags[0]), 64)
-					hitrollFloat, _ := strconv.ParseFloat(strings.TrimSpace(flags[1]), 64)
-					armorFloat, _ := strconv.ParseFloat(strings.TrimSpace(flags[2]), 64)
+					hitrollOffset, _ := strconv.Atoi(strings.TrimSpace(flags[1]))
+					armorValue, _ := strconv.Atoi(strings.TrimSpace(flags[2]))
+					//db.c read_mobs: level = MAX(1,fileLevel); hitroll field is an offset, not the hitroll
+					mobLevelInt := int(levelFloat)
+					if mobLevelInt < 1 {
+						mobLevelInt = 1
+					}
+					protoHitroll := min(mobLevelInt, 20-hitrollOffset)
+					if mobLetter == "S" || mobLetter == "X" {
+						if mobLevelInt > 19 {
+							protoHitroll += 2
+						}
+						if mobLevelInt > 23 {
+							protoHitroll += 2
+						}
+						if mobLevelInt > 26 {
+							protoHitroll += 2
+						}
+						if mobLevelInt > 29 {
+							protoHitroll += 2
+						}
+						if mobLevelInt > 32 {
+							protoHitroll += 3
+						}
+						if mobLevelInt > 35 {
+							protoHitroll += 3
+						}
+						if mobLevelInt > 38 {
+							protoHitroll += 4
+						}
+						protoHitroll = min(mobLevelInt, protoHitroll)
+					}
 					//Zone multipliers (db.c read_mobile scales level/hitroll/armor)
-					mobLevel = strconv.FormatFloat(levelFloat*float64(zoneMultLevel)/100, 'f', -1, 64)
-					mobHitroll = strconv.FormatFloat(hitrollFloat*float64(zoneMultHitroll)/100, 'f', -1, 64)
-					mobArmor = strconv.FormatFloat(armorFloat*float64(zoneMultArmor)/100, 'f', -1, 64)
+					mobLevel = strconv.FormatFloat(float64(mobLevelInt)*float64(zoneMultLevel)/100, 'f', -1, 64)
+					mobHitroll = strconv.Itoa(int(float64(protoHitroll)*float64(zoneMultHitroll)/100))
+					//db.c read_mobs: armor = 10 * fileValue, then zone-scaled in read_mobile
+					mobArmor = strconv.Itoa(int(float64(armorValue*10)*float64(zoneMultArmor)/100))
 
 					//HP flags[3] e.g. 20d40+4300
 					if strings.Contains(flags[3], "d") {
